@@ -272,8 +272,8 @@ sub {
 
 .player__iframe {
     position: relative;
-    width: 765px;
-    height: 430px;
+    width: 960px;
+    height: 540px;
     top: 0%;
     left: 66px;
     box-shadow: 0 10px 22px -5px black;
