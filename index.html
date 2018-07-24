@@ -83,8 +83,8 @@
 
 <body class="body">
     <div id="jsTopWrapper" class="top-wrapper top-wrapper--no-cta top-wrapper--no-promo">
-      
-           <!--<div class="social social--top social--expanded jsSocialIcons" id="jsSocialIconsTop">
+       <header id="jsHeader" class="header">
+           <div class="social social--top social--expanded jsSocialIcons" id="jsSocialIconsTop">
                 <a href="#" class="social__icon social__icon--collapse" id="jsSocialIconTopCollapse">
                     <span class="sr-only translate" data-translate="CollapseText">Collapse</span>
                 </a>
@@ -106,33 +106,19 @@
                     <span class="header__preparedfor--text" id="jsPreparedFor">&nbsp;</span>
                     <span class="header__preparedfor--name" id="jsPreparedForName" data-dict-name="first_name"></span>
                 </div>
-            </div>-->
-	   
-                <div class="header__preparedfor">
-                    <span class="header__preparedfor--text" id="jsPreparedFor">&nbsp;</span>
-                    <span class="header__preparedfor--name" id="jsPreparedForName" data-dict-name="first_name"></span>
-                </div>
-            
+            </div>
         </header>
         
 
         <main id="jsMain" class="main">
-		
-            <header id="jsHeader" class="header">
-	   <div  style="margin: 0% 30%;">
-            <img class="header__logo" src="images/RealTimeLogo.png" alt="Logo">
-            <br class="clearfix">
-          </div>
+           
+         
                 
-            <div class="cta cta--side jsCtaContainer" style="    height: 100%;
-    width: 6%;
-    margin-top: 124px;
-"></div>
+            <div class="cta cta--side jsCtaContainer"></div>
 
             <div class="player">
-                <div class="player__wrapper" style="background-color: #0f0f0f ;">
-                    <div class="player__iframe" id="jsPlayerIframe" style="margin-left:5% ;    margin-left: 129px;
-    margin-top: 71px;">
+                <div class="player__wrapper">
+                    <div class="player__iframe" id="jsPlayerIframe" style="margin-left:5%">
                         {{VIDEO_IFRAME}}
 
                         <div id="jsResumeSplash" class="player__splash">
@@ -143,8 +129,7 @@
                 </div>
             </div>
 
-            <div id="jsPromoContainerDesktop" class="promo promo--side jsPromoContainer" style="margin: 0px -6px;
-    height: 166px;"></div>
+            <div id="jsPromoContainerDesktop" class="promo promo--side jsPromoContainer"></div>
 
             <br class="clearfix" />
 
@@ -339,7 +324,7 @@
                         <span class="sr-only translate" data-translate="VolumeButtonText">Volume</span>
                     </button>
 
-                 <!--   <div id="jsVolume" class="timeline-volume">
+                    <div id="jsVolume" class="timeline-volume">
                         <div id="jsVolumeBar" class="timeline-volume__bg"></div>
                         <div id="jsVolumeLevelContainer" class="timeline-volume__container">
                             <div id="jsVolumeLevel" class="timeline-volume__level">
@@ -352,7 +337,7 @@
                     <button id="jsFullScreenButton" type="button" class="jsTimelineButton timeline__button timeline__button--fullscreen no-focus">
                         <span id="jsFullScreenIcon" class="timeline__button-icon timeline__button-icon--fullscreen"></span>
                         <span class="sr-only translate" data-translate="FullScreenButtonText">Full Screen</span>
-                    </button>-->
+                    </button>
                 </div>
             </div>
         </main>

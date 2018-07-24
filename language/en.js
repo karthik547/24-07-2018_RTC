@@ -107,7 +107,7 @@ var Translations = {
      */
     "ChapterSettings": [
         {
-            "label": "introduction",
+            "label": "INTRODUCTION",
             "states": [
                 {
                     "cardId": "START",
@@ -116,79 +116,78 @@ var Translations = {
             ]
         },
         {
-            "label": "helping you",
+            "label": "HELPING YOU",
             "states": [
                 {
                     "cardId": "26f3539e",
-                    "width": 10
+                    "width":10
                 }    
             ]
         },
          {
-            "label": "personilization",
+            "label": "PERSONALIZATION",
             "states": [
                 {
                     "cardId": "129c0e3c",
-                    "width": 10
+                    "width": 15
                 },
                 {
-                    "cardId": "fc8d1a3a"
-                    ,
-                    "width": 10
+                    "cardId": "fc8d1a3a",
+                    "width": 15
                 }
             ]
         },
         
         {
-            "label": "service tour",
+            "label": "SERVICE TOUR",
             "states": [
                 {
                     "cardId": "8af5f097",
-                    "width": 10
+                    "width": 7
                 },
                  {
                     "cardId": "04ae54c4",
-                    "width": 10
+                    "width": 8
                 }
             ]
         },
         {
-            "label": "optional information",
+            "label": "OPTIONAL INFORMATION",
             "states": [
                 {
                     "cardId": "f4824bf8",
-                    "width": 7
+                    "width": 10
                 },
                 {
                     "cardId": "784e106c",
-                    "width": 8
+                    "width": 10
                 }
                
             ]
         },
         {
-            "label": "questions",
+            "label": "QUESTIONS",
             "states": [
                 {
                     "cardId": "ddc44336",
-                    "width": 6
+                    "width": 4
                 },
                 {
                     "cardId": "ccec9820",
-                    "width": 6
+                    "width": 3
                 },
                 {
                     "cardId": "d0bc6b55",
-                    "width": 5
+                    "width": 3
                 }
             ]
         },
         {
-            "label": "thanks",
+            "label": "THANKS",
             "states": [
                 {
                     "cardId": "End",
-                    "width": 8
+                    "width": 5
                 }
             ]
         }
