@@ -2057,6 +2057,7 @@ var VolumeSlider = {
     /**
      * Hide the volume button and bar on devices where volume cannot be controlled by the player.
      */
+	 
     disable: function() {
         $("#jsVolume, #jsVolumeButton").hide();
         $("#jsTimeline").addClass("timeline--no-volume");
@@ -2106,6 +2107,8 @@ var VolumeSlider = {
                 VolumeSlider.setVolume(VolumeSlider.mutedVolume);
             }
         },
+		
+		
 
         /**
          * Set the volume by clicking on the slider

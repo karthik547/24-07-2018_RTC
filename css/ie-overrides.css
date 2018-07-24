@@ -61,6 +61,7 @@
 
 .lteie8 .timeline__button-icon--settings--hd {
     background-position-x: 26.923%;
+    background
 }
 
 .lteie8 .timeline__button-icon--settings--4k {
@@ -258,7 +259,7 @@
     margin-bottom: 6px;
     width: 32px;
     height: 32px;
-    background-image: url("../images/cta_icons_ie.png");
+    background-image: url("../images/side_buttons3.png");
 }
 
 .lteie8 .cta--side,
