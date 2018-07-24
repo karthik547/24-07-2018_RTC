@@ -36,7 +36,7 @@
 /** Main Styling (for 1080p) **/
 .body {
     background-color: #f0f0f0;
-    font-family: "OpenSans_Regular", Arial;
+    font-family: "OpenSans_Regular", Arial;.
 }
 
 .top-wrapper {
@@ -267,7 +267,7 @@ border-bottom-right-radius: 6%;
 }
 
 .player__splash {
-    opacity: 0.5;
+    opacity: 0;
     background-color: #000;
     cursor: pointer;
 }
@@ -349,7 +349,7 @@ border-bottom-right-radius: 6%;
 
 .timeline__controls {
     background-color:#0a0a0a;
-    border-color: #dbdbdb;
+    border-color: #333;
 }
 
 .timeline__button {
@@ -359,7 +359,7 @@ border-bottom-right-radius: 6%;
 
 .timeline__button--skip-back,
 .timeline__button--skip-forward {
-    width: 80px;
+    width: 115px;
 }
 
 .timeline__button--play-pause {
@@ -378,7 +378,7 @@ border-bottom-right-radius: 6%;
 }
 
 .timeline__button--volume {
-    width: 45px;
+    width: 52px;
 }
 
 .timeline__button-icon {
@@ -387,13 +387,13 @@ border-bottom-right-radius: 6%;
 
     display: block;
     margin: 0 auto;
-    width: 20px;
-    height: 20px;
+	margin-left:14px;
+    width: 36px;
+    height: 31px;
     background: url("../images/timeline_controls.png") no-repeat;
     background-position-y: 50%;
     background-position: var(--timeline-bgX) var(--timeline-bgY);
     background-size: 2700% 300%;
-    
 }
 
 .fullscreen .timeline__button-icon {
@@ -409,14 +409,14 @@ border-bottom-right-radius: 6%;
 }
 
 .timeline__button-icon--skip-back {
-    margin-right: 43px;
+    margin-right: 8px;
     background-position-x: calc((100%/26) * 2);
     --timeline-bgX: calc((100%/26) * 2);
 }
 
 .timeline__button-icon--play {
     width: 25px;
-    height: 25px;
+    height: 26px;
     background-position-x: calc((100%/26) * 0);
     --timeline-bgX: calc((100%/26) * 0);
 }
@@ -535,11 +535,11 @@ border-bottom-right-radius: 6%;
 }
 
 .timeline-progress-hover {
-    background-color: #5e3820;
+    background-color: black;
 }
 
 .timeline-progress {
-    background-color: #704a1e;
+    background-color: #060606;
 }
 
 .timeline-chapters--seen {
@@ -560,7 +560,7 @@ border-bottom-right-radius: 6%;
 
 .timeline-chapters__chapter,
 .fullscreen .timeline-chapters__chapter {
-    border-right: 2px solid #c0c0c0;
+    border-right: 1px solid #333;
 }
 
 .timeline-chapters__chapter:last-child {
@@ -593,13 +593,13 @@ border-bottom-right-radius: 6%;
 .timeline__settings-language,
 .timeline__settings-cc {
     position: absolute;
-    top: -209px;
+    top: -158px;
     right: 340px;
-    padding: 16px;
-    width: 220px;
-    height: 210px;
-    background-color: #2e2e2e;
-    font-size: 17px;
+    padding: 10px;
+    width: 156px;
+    height: 158px;
+    background-color: black;
+    font-size: 11px;
 }
 
 .fullscreen .timeline__settings-popout,
@@ -717,6 +717,7 @@ border-bottom-right-radius: 6%;
 
 .footer__copyright {
     text-align: left;
+	margin-left:40px;
 }
 
 .footer__links {
@@ -724,14 +725,14 @@ border-bottom-right-radius: 6%;
 }
 
 .footer__link {
-    color: #3d3d3d;
+    color: #74777d;
     text-decoration: none;
 }
 
 .footer__link:hover,
 .footer__link:active,
 .focusable.footer__link:focus {
-    text-decoration: underline;
+    text-decoration: none;
 }
 
 .footer__link--image:hover,
