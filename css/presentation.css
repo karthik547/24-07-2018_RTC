@@ -359,7 +359,7 @@ border-bottom-right-radius: 6%;
 
 .timeline__button--skip-back,
 .timeline__button--skip-forward {
-    width: 115px;
+    width: 80px;
 }
 
 .timeline__button--play-pause {
