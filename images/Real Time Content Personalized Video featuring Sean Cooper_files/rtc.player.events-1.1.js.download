@@ -1,0 +1,306 @@
+window.rtc = window.rtc || {};
+rtc.player = rtc.player || {};
+rtc.player.flash = {};
+$.extend(true, rtc.player.flash, {
+
+	buffer: {
+
+		full: false,
+		zeroProgressCount: 0,
+		currentPlay: null,
+
+		setfull: function() {
+			this.full = true;
+		},
+
+		resetfull: function() {
+			this.full = false;
+		},
+
+		countZeroProgressSinceFull: function(play) {
+			if (this.full && play === this.currentPlay) {
+				this.zeroProgressCount++;
+			}
+			else {
+				this.zeroProgressCount = 0;
+			}
+			this.currentPlay = play;
+			if (this.zeroProgressCount > 2) {
+				this.resetfull();
+				return true;
+			}
+			return false;
+		}
+
+	}
+
+});
+rtc.player.realevents = {};
+$.extend(true, rtc.player.realevents, {
+	vars: {
+		playingInterval: null
+	},
+	playingInterval: {
+		start: function() {
+			rtc.player.events.vars.playingInterval = setInterval(function(){
+				if ( rtc.player.playerStatus.playing && rtc.player.buffering.videoStartTime() !== null && rtc.player.getVideoTimes().play > rtc.player.buffering.videoStartTime() + 0.25 ) { // don't show the warning if the video is not playing
+					rtc.player.showIE9FlashWarning();
+					rtc.player.buffering.hideBufferingIcon();
+					rtc.player.events.playingInterval.clear();
+				}
+			},500);
+		},
+		clear: function() {
+			clearInterval( rtc.player.events.vars.playingInterval );
+		}
+	},
+	timeupdate: function(currentPercentAbsolute, currentTime, bufferedPercentages, duration) {
+		var time = (new Date()).getTime();
+
+		if (!duration) {
+			if (rtc.utils.vars.totalDuration) {
+				duration = rtc.utils.vars.totalDuration;
+
+				if (!currentPercentAbsolute && duration) {
+					currentPercentAbsolute = 100 * currentTime / duration;
+				}
+			}
+		}
+
+		rtc.timeline.setPos(RTCVisit.currentState,currentPercentAbsolute, currentTime, duration);
+        rtc.timeline.updateTimelineProgressBar();
+        rtc.player.buffering.v2.timeupdate(currentTime);
+		if(currentPercentAbsolute != 0)	// Fixes bug occuring when video ends.
+		{
+			rtc.utils.updateOverlays(currentTime);
+		}
+		if ( rtc.player.playerStatus.playing && currentTime > 0.25 ) {
+			rtc.utils.positionUpdate(currentPercentAbsolute);
+			if ( currentTime < 2 && ( $( "#jquery_jplayer_videoplayer img" ).length > 0 || $( ".failover_message:visible" ).length > 0 ) ) {
+				$( "#jquery_jplayer_videoplayer img" ).remove();
+				rtc.player.restoreVideoSize();
+				rtc.player.hideIE9FlashWarning();
+				$( ".failover_message" ).hide();
+				$( "#cardproblemFeedbackStep1,#cardproblemFeedbackStep2" ).dialog( "dismiss" );
+			}
+		}
+		$( window.rtc ).trigger( "rtc.player.timeupdate", { time: currentTime, percent: currentPercentAbsolute, buffered: bufferedPercentages, duration: duration, status: rtc.player.playerStatus } );
+		return rtc.player.buffering.timeupdate( time, currentTime, bufferedPercentages, duration );
+	},
+
+	progress: function( times ) {
+		rtc.utils.vars.downloadEndTime=(new Date()).getTime();
+		rtc.utils.vars.downloadPercentage = times.bufferedPercentage;
+//			timetaken=rtc.utils.vars.downloadEndTime - rtc.utils.vars.downloadStartTime;
+//			consoleLog("progress " + downloadPercentage + "%");
+
+		if (rtc.player.flash.buffer.countZeroProgressSinceFull(times.play)) {
+			// no progress after flashbufferfull, so explicitly attempt to start the video.
+			if ( 'paused' !== rtc.player.playerStatus.name ) {
+				rtc.utils.track('flashbuffer.noprogress', 'flashVersion=' + rtc.utils.getFlashVersion() + ',playerStatus=' + rtc.player.playerStatus.name);
+				$('#jquery_jplayer_videoplayer').jPlayer("play");
+			}
+		}
+
+		return rtc.player.buffering.progress( times );
+	},
+
+	ended: function(duration, netStreamInfo) {
+		if( rtc.utils.overlaysShouldFadeTo( navigator.userAgent ) ) {
+			$('#overlays').css("display", "none");
+		}
+		rtc.utils.track('videoend', rtc.utils.parseNetStreamInfo(netStreamInfo) );
+		if (rtc.utils.isIPhone()) { // fixes bug on iPhone where subsequent videos did not start at the beginning.
+			rtc.player.video('playHead', 0);
+		}
+
+		rtc.player.buffering.clearPlayStatusTimeout();
+		rtc.player.hideIE9FlashWarning();
+		rtc.utils.exitFullScreen();
+		rtc.player.audio("stop");
+
+		var newState = rtc.state.next(RTCVisit);
+		rtc.utils.track('autonext', {nextState: newState});
+
+		rtc.state.set(newState);
+		rtc.card.showCard(RTCVisit.currentState);
+		rtc.player.playerStatus.seeking(false);
+		rtc.utils.updateOverlays(duration);
+		$.rtcVideoPlaying = false;
+	},
+
+	play: function( times ) {
+		rtc.utils.track( "player.video.play" );
+		if ( rtc.player.buffering.initialBuffer() ) {
+			if ( rtc.utils.preloadImages && rtc.utils.vars.imagesToPreload ) {
+				rtc.utils.preloadImages( rtc.utils.vars.imagesToPreload );
+			}
+			$("#jp_poster_1").remove();
+			$("#wrapper_status_image").removeClass("wrapperPlayPoster wrapperLoadingImage");
+			$("#video_background").delay(5000).css({'background-color': '#000000'});
+			rtc.player.restoreVideoSize();
+			this.playingInterval.start();
+		}
+		else if ( ( !rtc.card.isCardVisible( "bandwidthWarning" ) || ( !rtc.player.buffering.isBrowserBuffering() && rtc.player.buffering.canResume( times ) ) ) && rtc.player.buffering.videoStartTime() !== null ) {
+			rtc.player.buffering.hideBufferingIcon();
+		}
+		consoleLog( "rtc.player.playerStatus.name = " + rtc.player.playerStatus.name );
+		rtc.player.controls.playBtnPlay();
+		$('#overlays').show();
+		rtc.player.playerStatus.set( "playing" );
+		rtc.player.buffering.status( "playing" );
+		$.rtcVideoPlaying = true;
+		rtc.logging.videoStarted();
+		rtc.loadSequence.progress( rtc.loadSequence.steps.videoStarted );
+
+		if ( rtc.player.seekingWhilePaused() ) {
+			if ( times.play > 0 && !rtc.player.buffering.canResume( times, true ) ) {
+				if ( rtc.player.video.isHtmlActive() ) {
+					rtc.player.buffering.startBuffering( times, "after seek (paused)" );
+				}
+				else {
+					rtc.player.buffering.showBufferingIcon();
+					rtc.player.buffering.status( "buffering" );
+				}
+			}
+
+			rtc.player.seekingWhilePaused( false );
+		}
+
+		if ((rtc.utils.vars.videoLayout == 'hq')&&(rtc.utils.getPlaybackQuality() == 'low')){
+			rtc.hd.showHDlowBandwidthTip();
+		}
+	},
+
+    playing: function(event) {
+		rtc.utils.track( "player.video.playing" );
+        rtc.player.buffering.v2.playing(event.jPlayer.status);
+    },
+    /**
+     * Handles HTML5 video stalled events
+     *
+     * @param {Object} event jPlayer event data
+     */
+    stalled: function(event) {
+        rtc.player.buffering.v2.stalled(event.jPlayer.status);
+    },
+    /**
+     * Handles HTML5 video waiting events
+     *
+     * @param {Object} event jPlayer event data
+     */
+    waiting: function(event) {
+        var networkState = event.jPlayer.status.networkState;
+
+        //NETWORK_LOADING https://dev.w3.org/html5/spec-preview/media-elements.html#network-states
+        if (2 === networkState && rtc.utils.bandwidth.isDetected()) {
+            rtc.player.buffering.v2.showBandwidthWarningIfCount();
+        }
+
+        if (rtc.utils.bandwidth.isDetected() && rtc.player.buffering.v2.vars.count > 3) {
+            rtc.utils.track("bandwidth.low", rtc.bandwidth);
+        }
+
+        rtc.player.buffering.v2.waiting(event.jPlayer.status);
+    },
+
+	pause: function() {
+		rtc.utils.track( "player.video.pause" );
+		if ( rtc.player.buffering.pausedToBuffer() ) {
+			rtc.player.buffering.pausedToBuffer( false );
+		}
+		else {
+			rtc.player.pause();
+		}
+		rtc.player.buffering.ignoreTimeupdateTimes( true );
+	},
+
+	seeking: function() {
+		rtc.player.buffering.clearPlayStatusTimeout();
+		rtc.player.buffering.ignoreTimeupdateTimes( true );
+		if ( rtc.player.playerStatus.playing ) {
+			rtc.player.audio( "pause" );
+			rtc.player.playerStatus.seeking( true );
+			rtc.player.buffering.showBufferingIcon( 500 );
+		}
+		else {
+			rtc.player.seekingWhilePaused( true );
+		}
+	},
+
+	seeked: function( times ) {
+		var canResume = rtc.player.buffering.canResume( times, true );
+
+		if ( rtc.player.video.isFlashActive() ) {
+			if ( !canResume ) {
+				rtc.player.buffering.status( "buffering" );
+			}
+		}
+		else if ( canResume ) {
+			rtc.player.buffering.hideBufferingIcon();
+			rtc.player.buffering.status( "playing" );
+		}
+		rtc.player.buffering.seekingComplete( times );
+		rtc.player.playerStatus.set( "seeked" );
+		rtc.player.buffering.ignoreTimeupdateTimes( true );
+	},
+
+	canplay: function() {
+		rtc.player.playerStatus.canplay();
+	},
+
+	canplaythrough: function(networkState) {
+		if ( networkState == 1 ) { // NETWORK_IDLE http://dev.w3.org/html5/spec/media-elements.html#dom-media-networkstate
+			rtc.player.playerStatus.canplay();
+			rtc.player.buffering.canPlayThrough( true );
+			if ( rtc.player.buffering.status( "buffering" ) ) {
+				rtc.player.buffering.progress(rtc.player.getVideoTimes());
+			}
+		}
+	},
+
+	flashbufferfull: function(seekPercent) {
+		rtc.player.flash.buffer.setfull();
+		rtc.player.buffering.hideBufferingIcon();
+		rtc.player.buffering.status('playing');
+		rtc.player.playerStatus.seeking(false);
+		rtc.player.audio("play");
+		rtc.utils.track('flashbufferfull', 'seekPercent=' + seekPercent);
+	},
+
+	flashbufferempty: function(seekPercent) {
+		if (seekPercent < 97 || !seekPercent) {
+			rtc.utils.track('buffering.flash');
+			rtc.player.audio("pause");
+			rtc.player.flash.buffer.resetfull();
+			rtc.player.buffering.status('buffering');
+			rtc.player.buffering.showBufferingIcon();
+			rtc.player.buffering.currentVideoBuffered();
+
+            if (!rtc.player.playerStatus.seeking() && !rtc.player.seekingWhilePaused() && rtc.utils.bandwidth.isDetected()) {
+                rtc.player.buffering.v2.showBandwidthWarningIfCount();
+            } else if ( !rtc.player.playerStatus.seeking() && !rtc.player.seekingWhilePaused() ) {
+				rtc.player.buffering.bufferingCounts.increase();
+				rtc.player.buffering.showBandwidthWarningIfCount( "RTC" );
+			}
+		}
+	},
+
+	volumechange: function( event ) {
+	},
+
+	audio: {
+		play: function() {
+			rtc.utils.track( "player.audio.play" );
+		},
+
+		playing: function() {
+			rtc.utils.track( "player.audio.playing" );
+		},
+
+		pause: function() {
+			rtc.utils.track( "player.audio.paused" );
+		}
+	}
+});
+rtc.player.events = rtc.player.realevents;

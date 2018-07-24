@@ -1,0 +1,460 @@
+window.rtc = window.rtc || {};
+$.extend(true, rtc, {
+	timeline: {
+		vars: {
+			strings: null,
+			timelineOptions: {
+				hyphenate: false,
+				intermediateSections: []
+			},
+			minSectionFontSize: 10,
+			sectionAdditionalPadding: "0",
+			timelineTooltips: []
+		},
+		sliding: false,
+		slideCurrentState: function( targetState, timelineVal ) {
+			if ( !StateEngine[targetState].cardIsShowing() ) {
+				if ( 'function' === typeof StateEngine[targetState].slide ) {
+					StateEngine[targetState].slide( RTCVisit, timelineVal );
+				}
+				else {
+					var percent = StateEngine[targetState].percentFromTimeline( timelineVal, RTCVisit );
+					rtc.player.timelineSeek( percent );
+
+					if ( rtc.player.video.isFlashActive() ) {
+						var secondsFromStart = percent * rtc.player.video.status().duration / 100;
+						this.setVideoPositionSeconds( secondsFromStart );
+					}
+					else {
+						this.setVideoPercentage( percent );
+					}
+				}
+			}
+		},
+		setVideoPositionSeconds: function( secondsFromStart ) {
+			consoleLog('rtc.timeline.setVideoPositionSeconds ' + secondsFromStart);
+			rtc.player.video("play", secondsFromStart);
+		},
+		slideDifferentState: function( targetState, timelineVal ) {
+			this.gotoState( targetState );
+		},
+		slide: function(event, ui) {
+			var timelineVal = ui.value;
+			var targetState = rtc.state.timelineTargetState(timelineVal);
+			var currentState = rtc.state.currentState();
+			consoleLog('timelineSlide:' + timelineVal + ' targetState:' + targetState + ' currentState:' + currentState);
+			rtc.utils.track("timeline.slide", {
+				pos: timelineVal,
+				targetState: targetState,
+				currentState: currentState,
+				hd: rtc.utils.isHD()
+			});
+			if ( !rtc.player.playerStatus.videoStarted ) {
+				$('#timelineBar #playpause').click();
+			}
+			else if (targetState == 'END' && StateEngine.END) {
+				rtc.card.showCard( targetState );
+
+				return false;
+			}
+			else if (rtc.state.currentState() === targetState) {
+				rtc.timeline.slideCurrentState( targetState, timelineVal );
+			}
+			else {
+				this.slideDifferentState( targetState, timelineVal );
+				rtc.player.hideIE9FlashWarning();
+				return false;
+			}
+		},
+		gotoState: function(targetState, alwaysPlay) {
+			if ( StateEngine[targetState].stateSelectedOnTimeline(RTCVisit, alwaysPlay) !== false ) {
+				this.changeState(targetState, alwaysPlay);
+			}
+			$("#audio_player").jPlayer("stop");
+			//consoleLog('timelineSlide change state');
+		},
+		skipToState: function( state ) {
+			// prevent IE9 flash warning from being displayed
+			rtc.player.hideIE9FlashWarning();
+			rtc.player.buffering.resume( true );
+			rtc.player.stopPlayer();
+			rtc.overlay.hideAll();
+			rtc.state.set(state);
+			rtc.card.showCard(state);
+			rtc.player.buffering.updateProgressToMarkerPosition();
+			rtc.timeline.setPosForce(state, 0);
+		},
+		setVideoPercentage: function(percent) {
+			consoleLog('rtc.timeline.setVideoPercentage ' + percent);
+			var relativePercent=Math.min(100,percent*100/$("#jquery_jplayer_videoplayer").data("jPlayer").status.seekPercent);		//"playHead" takes a percentage of the currently seekable video, not of the whole video.
+			$("#jquery_jplayer_videoplayer").jPlayer("playHead", relativePercent);
+		},
+		changeState: function(targetState, alwaysPlay) {
+			consoleLog('rtc.timeline.changeState ' + targetState);
+			rtc.state.set(targetState);
+			if(!StateEngine[targetState].cardIsShowing()) {
+				rtc.card.hideCards();
+			}
+			else {
+				StateEngine[targetState].cardLoaded();
+			}
+			if ( alwaysPlay === true ) {
+				rtc.player.controls.playNext();
+				rtc.timeline.setPos(RTCVisit.currentState,0);
+			}
+			else {
+				rtc.player.stopPlayer();
+				rtc.card.showCard(targetState);
+			}
+			rtc.player.buffering.updateProgressToMarkerPosition();
+		},
+		sliderOnce: {},
+		sliderOnceExpired: function(sliderPos) {
+			delete this.sliderOnce[sliderPos];
+		},
+		slideIgnoreRepeated: function(event, ui, fn) {
+			if (!this.sliderOnce[ui.value]) {
+				this.sliderOnce[ui.value] = true;
+				setTimeout(function() {rtc.timeline.sliderOnceExpired(ui.value);}, 300);
+				fn.call(this, event, ui);
+			}
+
+			return false;
+		},
+		setPosForce: function(state, pos) { // timelineForcePos
+            this.updateTimelineProgressBar();
+			var sliderVal = rtc.timeline.sliderPos(state, pos);
+			$('#timeline').slider('option', 'value', sliderVal);
+		},
+		setPos: function(state, pos, currentTime, duration) { // timelinePos
+			if ( !this.sliding ) {
+				if ( pos > 0 || !RTCVisit.lastTimelinePosUpdate || RTCVisit.lastTimelinePosUpdate.state != state ) { // prevent timeline position going back to the start when the next state is reached
+					this.setPosForce(state, pos);
+				}
+				RTCVisit.lastTimelinePosUpdate = {state:state,pos:pos};
+			}
+		},
+		sliderPos: function(state, percent) {
+			// default to END if state is null when user slides past the end of the timeline
+			return StateEngine[state || 'END'].timelinePos(percent, RTCVisit);
+		},
+        updateTimelineProgressBar: function() {
+            // Is overridden with functionality by projects which require so.
+        },
+		_render: function( strings, options ) {
+			var sections = [];
+			var timeline = $( "#timeline" );
+			var timelineWidth = timeline.width();
+			var total = 0;
+			var minFontSize = 100;
+
+			if ( typeof strings == "undefined" ) {
+				strings = rtc.timeline.vars.strings;
+			}
+			else {
+				rtc.timeline.vars.strings = strings;
+			}
+
+			if ( typeof options != "undefined" ) {
+				$.extend( true, rtc.timeline.vars.timelineOptions, options );
+			}
+
+			options = rtc.timeline.vars.timelineOptions;
+
+			timeline.children( ".timeline-section,.intermediate-timeline-section-divider,.intermediate-timeline-section" ).remove();
+
+			for ( var state in strings ) {
+				if ( typeof strings[state] == "string" ) {
+					if ( StateEngine[state] ) {
+						sections.push( { start: StateEngine[state].timelineStartPos, label: strings[state], state: state } );
+					}
+				}
+				else {
+					sections.push( strings[state] );
+				}
+			}
+
+			for ( var i = 0 ; i < sections.length ; i++ ) {
+				var last = i + 1 == sections.length;
+				var width = last ? ( 100 - total ) : ( sections[i + 1].start - sections[i].start );
+				var label = sections[i].label;
+				var section = $( "<div class='timeline-section' id='timeline-section-" + sections[i].state +
+					"'><div class='timeline-section-text' style='padding:" + rtc.timeline.vars.sectionAdditionalPadding + "'>" +
+					label.replace( /\n/g, "<br/>" ) + "</div></div>" ).appendTo( timeline );
+				var fontSize = parseInt( String( section.css( "font-size", null ).css( "font-size" ) ).replace( /[a-z]+/i, "" ) );
+				var padding = parseInt( section.css( "padding-left" ), 10 ) + parseInt( section.css( "padding-right" ), 10 );
+				var totalPadding = padding + parseInt( section.find( "div" ).css( "padding-left" ), 10 ) + parseInt( section.find( "div" ).css( "padding-right" ), 10 );
+
+				if ( RTCConfig.showTimelineSceneNumbers && sections[i].state ) {
+					section.append( "<div class='timeline-scene-number'>" + sections[i].state.replace( /^S_/, "" ) + "</div>" );
+				}
+
+				while ( section.width() + totalPadding >= Math.floor( ( width * timelineWidth ) / 100 ) && fontSize > rtc.timeline.vars.minSectionFontSize ) {
+					if ( label.match( / / ) && !section.hasClass( "timeline-section-2-line" ) ) {
+						break;
+					}
+					else {
+						fontSize -= 0.5;
+						section.css( "font-size", fontSize );
+					}
+				}
+
+				if ( options.hyphenate && section.width() >= Math.floor( ( width * timelineWidth ) / 100 ) && !label.match( / / ) ) {
+					var middle = Math.ceil( label.length / 2 );
+					section
+						.addClass( "timeline-section-2-line" )
+						.find( ".timeline-section-text" )
+							.html( label.substr( 0, middle ) + "- " + label.substr( middle ) );
+				}
+
+				minFontSize = Math.max( rtc.timeline.vars.minSectionFontSize, Math.min( minFontSize, fontSize ) );
+
+				if ( !last ) {
+					section.append( "<div class='timeline-section-divider'></div>" )
+				}
+
+				section.css( "width", ( width - ( ( 100 / timelineWidth ) * padding ) ) + "%" );
+
+				total += width;
+			}
+
+			if ( options.intermediateSections && options.intermediateSections.length ) {
+				for ( var i = 0 ; i < options.intermediateSections.length ; i++ ) {
+					var intermediateSection = options.intermediateSections[i];
+
+					if ( typeof intermediateSection == "string" ) {
+						if ( StateEngine[intermediateSection] ) {
+							$( "<div class='intermediate-timeline-section-divider' style='left:" +
+								StateEngine[intermediateSection].timelineStartPos + "%'></div>" ).appendTo( timeline );
+						}
+					}
+					else {
+						$( "<div class='intermediate-timeline-section" +
+							( intermediateSection.width ? "" : "-divider" ) + "' style='left:" +
+							intermediateSection.start + "%'></div>" ).appendTo( timeline );
+
+						if ( intermediateSection.tooltip ) {
+							rtc.timeline.vars.timelineTooltips.push( intermediateSection );
+						}
+					}
+				}
+			}
+
+			$( ".timeline-section" ).css( "font-size", minFontSize ).each( function() {
+				var e = $( this ).css( "white-space", "normal" );
+				if ( e.find( "br" ).length ) {
+					e.addClass( "timeline-section-2-line" );
+				}
+				else if ( e.height() > parseFloat( e.css( "line-height" ) ) ) {
+					var t = e.find( ".timeline-section-text" );
+					t.html( rtc.utils.addLineBreak( t.html() ) );
+					e.addClass( "timeline-section-2-line" );
+				}
+				else {
+					e.css( "white-space", "" );
+				}
+			} );
+		},
+		render: function( strings, options ) {
+			this._render( strings, options );
+		},
+		configureTimelineMarker: function( options ) {
+			options = $.extend( true, {
+				max: 813,
+				slide: function( event, ui ) {
+					var targetState = rtc.state.timelineTargetState( ui.value );
+					var isCurrentState = rtc.state.currentState() === targetState;
+
+					if ( !isCurrentState || !rtc.player.isMediaSet() ) {
+						if ( !isCurrentState ) {
+							rtc.card.hideCards();
+							rtc.overlay.hideAll();
+						}
+
+						rtc.timeline.setPosForce( targetState, 0 );
+						rtc.timeline.sliding = true;
+
+						return false;
+					}
+					else if ( isCurrentState ) {
+						rtc.timeline.sliding = false;
+
+						return rtc.timeline.slideIgnoreRepeated(event, ui, rtc.timeline.slide);
+					}
+				},
+				stop: function( event, ui ) {
+					if ( rtc.state.currentState() !== rtc.state.timelineTargetState( ui.value ) ) {
+						rtc.timeline.slide( event, ui );
+					}
+
+					setTimeout( function() {
+						rtc.timeline.sliding = false;
+					}, 250 );
+				}
+			}, options );
+
+			$('#timeline').slider( options );
+
+			// lower the z-index of the tooltips when the user hovers over the timeline slider
+			$( "#timeline .ui-slider-handle" ).bind( {
+				mouseover: function() {
+					$( "#tooltipLayer" ).css( "z-index", 2 );
+				},
+				mouseout: function() {
+					$( "#tooltipLayer" ).css( "z-index", "" );
+				}
+			} ).append( "<span class='ui-slider-handle-line'/><span class='ui-slider-handle-top'/>" );
+		},
+		documentReady: function() {
+			$('#timelineBar #muteunmute, #timelineBar #playpause,#timelineBar #skipback, #timelineBar #skipforward, #timelineBar #qualitybtn, #timelineBar #qualityhigh, #timelineBar #qualitystandard, #timelineBar #qualityauto').hover(
+				function() {
+					$(this).addClass('hover');
+				},
+				function() {
+					$(this).removeClass('hover');
+				});
+
+			$('#timelineBar #timeline').mousemove(function(e) {
+					//var offsetX = e.offsetX;
+					var offsetX = e.pageX - $(this).offset().left;
+					offsetX = Math.max(0, offsetX);
+					var timelineState = rtc.state.timelineTargetState(offsetX);
+					var state = StateEngine[timelineState];
+					var shown = false;
+					var showTooltip = function( left, stateWidth, text ) {
+						$( '#timelineTooltipWrapper' ).show();
+						$( '#timelineTooltip' ).text( text );
+
+						var tooltipWidth = $( '#timelineTooltip' ).width() + 40; // left and right sides are 20px each
+
+						left = left + ( rtc.utils.isHD() ? 165 : 140 ) - ( tooltipWidth / 2 ) + ( stateWidth / 2 );
+
+						$( '#timelineTooltipWrapper' ).css( 'padding-left', left );
+					};
+
+					if (state && (state.timelineTooltip && (!$('#timelineTooltipWrapper:visible').length || $('#timelineTooltip').text() != state.timelineTooltip))) {
+						// show tooltip.
+						//consoleLog('hover: ' + state.timelineTooltip + ' ' + state.timelineStartPos);
+						$('#timelineTooltipWrapper').show();
+						$('#timelineTooltip').text(state.timelineTooltip);
+
+						var stateWidth = state.timelinePos( 100, RTCVisit ) - state.timelinePos( 0, RTCVisit );
+						var tooltipWidth = $('#timelineTooltip').width() + 40; // left and right sides are 20px each
+						var left = state.timelinePos(0, RTCVisit) + ( rtc.utils.isHD() ? 165 : 140 ) - ( tooltipWidth / 2 ) + ( stateWidth / 2 );
+
+						$('#timelineTooltipWrapper').css('padding-left', left );
+
+						shown = true;
+					}
+					else if ( rtc.timeline.vars.timelineTooltips.length ) {
+						var timelineWidth = $( this ).width();
+						var percent = ( offsetX / timelineWidth ) * 100;
+
+						$.each( rtc.timeline.vars.timelineTooltips, function( i, tooltip ) {
+							if ( percent >= tooltip.start && percent <= tooltip.start + tooltip.width ) {
+								showTooltip( ( tooltip.start / 100 ) * timelineWidth, ( tooltip.width / 100 ) * timelineWidth, tooltip.tooltip );
+
+								shown = true;
+							}
+						} );
+					}
+					if ((!state || !state.timelineTooltip) && $('#timelineTooltipWrapper:visible').length && !shown) {
+						$('#timelineTooltipWrapper').hide();
+					}
+				}).mouseleave(function() {
+					// remove tooltip.
+					$('#timelineTooltipWrapper').hide();
+				});
+
+			$('#timelineBar #playpause').on('click', function() {
+				if ($(this).hasClass('paused')) {
+					rtc.utils.track('playBtn');
+					if ($('.sideCard:visible').length) {
+						$('.sideCardClose').click();
+					}
+					else if (0 == $('.card').length || !$('.card').dialog('isOpen') || !RTCVisit.currentState || !StateEngine[RTCVisit.currentState].cardIsShowing()) {
+						rtc.player.controls.resume();
+					}
+				}
+				else {
+					rtc.utils.track('pauseBtn');
+					rtc.player.controls.pause();
+				}
+			});
+
+			$('#timelineBar #skipback').on('click', function() {
+				rtc.utils.track('rewindBtn');
+				if ( $( this ).attr( "disabled" ) != "disabled" ) {
+					rtc.player.controls.rewind();
+				}
+			});
+
+			$('#timelineBar #skipforward').on('click', function() {
+				rtc.utils.track('forwardBtn');
+				if ( $( this ).attr( "disabled" ) != "disabled" ) {
+					rtc.player.controls.fastForward();
+				}
+			});
+
+			$('#timelineBar #qualitybtn').on('click', function() {
+				$('#timelineBar #qualitypopup').toggle();
+			});
+
+			$('#timelineBar #qualityhigh').on('click', function() {
+				if ($('#timelineBar #qualityhigh').hasClass('disabled')){
+					 //Do Nothing
+				} else {
+					$('#timelineBar #qualitybtn').removeClass('auto standard').addClass('high');
+					$('#timelineBar #qualitypopup').hide();
+					//Add the HD CSS file
+					rtc.hd.expandScreen();
+					rtc.hd.updateVideoSize();
+
+					if (rtc.utils.getPlaybackQuality() == 'low') {
+						rtc.hd.showHDlowBandwidthTip(true);
+					}
+				}
+
+			});
+			$('#timelineBar #qualitystandard').on('click', function() {
+				$('#timelineBar #qualitybtn').removeClass('auto high').addClass('standard');
+				$('#timelineBar #qualitypopup').hide();
+				$('#timelineBar #hd_low_bandwidth').hide();
+				//Remove the HD CSS File
+				rtc.hd.contractScreen();
+				rtc.hd.updateVideoSize();
+			});
+			$('#timelineBar #qualityauto').on('click', function() {
+				$('#timelineBar #qualitybtn').removeClass('high standard').addClass('auto');
+				$('#timelineBar #qualitypopup').hide();
+				//Run a function to check CSS capability, and browser size. Then impliment eitherthe HQ or SQ version.
+				rtc.hd.autoVideoSize();
+			});
+			$('#timelineBar #quality').mouseleave(function() {
+				$('#timelineBar #qualitypopup').hide();
+			});
+			$('#volumeBar').hide();
+			$('#volume').slider({
+				orientation: 'vertical',
+				range: 'min',
+				max:100,
+				stop: function( event, ui ) {
+					rtc.utils.track( "volume.set", { data: ui.value } );
+				},
+				slide:function(event, ui) {
+					var val = ui.value;
+					rtc.player.controls.determineMuteState(val);
+					rtc.player.controls.changeVolume(val);
+					//set globalVolume variable
+					globalVolume = val/100;
+					//set globalMute value
+					if(globalMute)
+					{
+						globalMute = false;
+						rtc.player.controls.muteUnmute(false);
+					}
+				}
+			});
+		}
+	}
+});

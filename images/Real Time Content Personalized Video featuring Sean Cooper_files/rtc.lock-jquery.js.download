@@ -1,0 +1,27 @@
+if ( !navigator.userAgent.match( /msie [1-8][\\. ]/i ) ) {
+	try {
+		window.jQueryRTC = jQuery.noConflict();
+
+		window.$ = window.jQueryRTC;
+
+		function makeReadOnly( obj ) {
+			var getter = function() { return window.jQueryRTC; };
+			var setter = function() { /* do nothing to prevent object being overwritten */ };
+
+			if ( Object.defineProperty ) {
+				Object.defineProperty( window, obj, {
+					get: getter,
+					set: setter
+				} );
+			}
+			else if ( window.__defineGetter__ ) {
+				window.__defineGetter__( obj, getter );
+				window.__defineSetter__( obj, setter );
+			}
+		}
+
+		makeReadOnly( "$" );
+		makeReadOnly( "jQuery" );
+	}
+	catch ( e ) {}
+}

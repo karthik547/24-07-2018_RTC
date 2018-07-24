@@ -1,0 +1,47 @@
+window.rtc = window.rtc || {};
+$.extend(true, rtc, {
+	logging: {
+		videoAlreadyStarted: false,
+		domLoadComplete: function() {
+			rtc.loadSequence.progress( rtc.loadSequence.steps.domLoadComplete );
+		},
+		videoStarted: function() {
+			if ( !this.videoAlreadyStarted ) {
+				rtc.utils.track('video-started');
+				this.videoAlreadyStarted = true;
+			}
+		}
+	},
+	app: {
+		documentReady: function() {
+            if (rtc.player.buffering.v2.shouldActivate(navigator.userAgent)) {
+                rtc.player.buffering.v2.activate();
+            }
+
+			$( "#language_buttons a" ).each( function() {
+				$( this ).click( function( e ) {
+					e.preventDefault();
+
+					if ( $( this ).hasClass( "active-language" ) ) {
+						var languageBtns = $( "#language_buttons" );
+						var height = languageBtns.toggleClass( "language_buttons_open" ).hasClass( "language_buttons_open" ) ?
+								( ( languageBtns.children( "a" ).length - 1 ) * 20 ) : 0;
+
+						if ( Modernizr.touch ) {
+							languageBtns.css( "height", height );
+						}
+						else {
+							languageBtns.stop().animate( { height: height }, 500 );
+						}
+					}
+					else {
+						var href = $( this ).attr( "href" );
+						rtc.utils.track( "language.change", { data: $( this ).attr( "id" ).replace( /language\-/, "" ) }, function() {
+							window.location = href;
+						} );
+					}
+				} );
+			} );
+		}
+	}
+});

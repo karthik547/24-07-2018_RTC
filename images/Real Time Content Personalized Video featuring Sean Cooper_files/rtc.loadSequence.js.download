@@ -1,0 +1,128 @@
+window.rtc = window.rtc || {};
+$.extend(true, rtc, {
+	loadSequence: {
+		start: ( new Date() ).getTime(),
+		timeouts: {},
+		current: 0,
+		sequence: [ { ts: ( new Date() ).getTime(), name: "start" } ],
+		steps: {
+			domLoadComplete: {
+				percent: 0,
+				name: "domLoadComplete",
+				fn: function() {
+					var ua = navigator && navigator.userAgent;
+					var jQVersion = jQuery && jQuery.fn && jQuery.fn.jquery;
+					var trackData = { jsUserAgent: ua, jQueryVersion: jQVersion };
+					var compatibilityView = rtc.utils.compatibilityView(ua);
+					if ( compatibilityView ) {
+						trackData.compatibilityView = compatibilityView;
+					}
+					rtc.utils.track( "dom-load-complete", { data: JSON.stringify( trackData ) } );
+				}
+			},
+			bandwidthCheck: {
+				percent: 10,
+				name: "bandwidthCheck"
+			},
+			bandwidthStart: {
+				percent: 10,
+				name: "bandwidthStart"
+			},
+			bandwidthEnd: {
+				percent: 10,
+				name: "bandwidthEnd"
+			},
+			playerInitializing: {
+				percent: 15,
+				name: "playerInitializing",
+				timeout: 12000,
+				fn: function() {
+					this.percent = 0; // prevent total percentage being incremented again
+
+					if ( !RTCVisit.videoSolution || RTCVisit.videoSolution.match( /flash/i ) ) {
+						var flashVersion = rtc.utils.getFlashVersion();
+
+						if ( flashVersion !== false ) { // flash is installed
+							// TODO: check to see if swf can be download and the swf can call javascript function
+							rtc.utils.track( "flash.unavailable", { data: JSON.stringify( { message: ".swf file failed to download", flashVersion: flashVersion } ) } );
+						}
+
+						var v = document.createElement( 'video' );
+
+						v = !!v.canPlayType && ( function() {
+							try {
+								v.canPlayType( 'audio/mpeg; codecs="mp3"' );
+							}
+							catch ( e ) {
+								return false;
+							}
+
+							return true;
+						} )();
+
+						if ( v ) { // HTML5 video is supported
+							$( "#jquery_jplayer_videoplayer,#jquery_jplayer_audioplayer" ).jPlayer( "destroy" );
+
+							rtc.utils.track( "player.reset", { data: "Attempting to use HTML5 video instead of Flash" } );
+
+							RTCVisit.videoSolution = "html";
+							RTCVisit.videoSupplied = "m4v";
+
+							rtc.main.initPlayer();
+
+							return;
+						}
+					}
+
+					rtc.utils.showErrorCard( "no-solution" );
+					$( "#buffering_icon" ).hide();
+				}
+			},
+			playerInitialized: {
+				percent: 15,
+				name: "playerInitialized",
+				prevStep: "playerInitializing"
+			},
+			videoStarted: {
+				percent: 20,
+				name: "videoStarted"
+			},
+			playing: {
+				percent: 20,
+				name: "playing"
+			},
+			bufferingComplete: {
+				percent: 10,
+				name: "bufferingComplete"
+			}
+		},
+		report: function() {
+			rtc.utils.track( "load.sequence", { data: JSON.stringify( this.sequence ) } );
+		},
+		progress: function( step ) {
+			if ( this.current < 100 ) {
+				if ( step.prevStep ) {
+					clearTimeout( this.timeouts[step.prevStep] );
+				}
+				var e = $( "#loading-progress" );
+				this.sequence.push( { ts: ( new Date() ).getTime(), name: step.name } );
+				this.current = Math.min( this.current + step.percent, 100 );
+				e.html( ( this.current < 10 ? ( "0" + this.current ) : this.current ) + "%" );
+				if ( this.current == 100 ) {
+					e.animate( { opacity: 0 }, 500, function() { e.remove(); } );
+					this.report();
+				}
+				if ( step.timeout ) {
+					clearTimeout( this.timeouts[step.name] );
+					this.timeouts[step.name] = setTimeout( function() {
+						rtc.loadSequence.report();
+						step.fn && step.fn();
+					}, step.timeout );
+				}
+				else if ( step.fn ) {
+					step.fn();
+				}
+			}
+		}
+	}
+});

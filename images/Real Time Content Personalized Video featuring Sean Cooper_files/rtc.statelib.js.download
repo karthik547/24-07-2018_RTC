@@ -1,0 +1,187 @@
+window.rtc = window.rtc || {};
+$.extend(true, rtc, {
+
+	state: {
+
+		next: function(visit)
+		{
+			if (visit && visit.currentState && StateEngine[visit.currentState]) {
+				return StateEngine[visit.currentState].nextCard(visit);
+			}
+			return 'START';
+		},
+
+		previous: function(visit)
+		{
+			if (visit && visit.currentState && StateEngine[visit.currentState]) {
+				return StateEngine[visit.currentState].prevCard(visit);
+			}
+			return 'START';
+		},
+
+		max: function(state1, state2) {
+			var s1 = StateEngine[state1];
+			var s2 = StateEngine[state2];
+			if (!s1 && !s2) {
+				return 'ERROR';
+			}
+			if (!s1 && s2) {
+				return state2;
+			}
+			if (s1 && !s2) {
+				return state1;
+			}
+			return s1.timelinePos(0, RTCVisit) > s2.timelinePos(0, RTCVisit) ? state1 : state2;
+		},
+
+		_set: function( state, dontUpdateMaxState ) {
+			if ( state != RTCVisit.currentState ) {
+				rtc.utils.analytics.trackEvent( "State", state );
+			}
+			RTCVisit.currentState = state;
+			if ( !dontUpdateMaxState ) {
+				RTCVisit.maxState = rtc.state.max(RTCVisit.currentState, RTCVisit.maxState);
+			}
+		},
+
+		set: function( state, dontUpdateMaxState ) {
+			rtc.state._set( state, dontUpdateMaxState );
+		},
+
+		startState: function() {
+			var state = 'START';
+			consoleLog('startState:' + state);
+			rtc.state.set(state, true);
+			return state;
+		},
+
+		timelineTargetState: function(timelineVal) {
+			var ret = null;
+			$.each(StateEngine, function(name, state) {
+				if (null !== state.nextState
+						&& state.timelinePos(0, RTCVisit) <= timelineVal
+						&& state.timelinePos(100, RTCVisit) > timelineVal) {
+					ret = name;
+				}
+			});
+			if (null == ret && StateEngine.END.getTimelinePixelPos(100) <= timelineVal) {
+				ret = 'END';
+			}
+			return ret;
+		},
+
+		currentState: function() {
+			return RTCVisit.currentState ? RTCVisit.currentState : 'START';
+		},
+
+		removeState: function( stateEngine, state, timelineSections ) {
+			if ( stateEngine[state] ) {
+				var prev = stateEngine[state].prevState;
+				var next = stateEngine[state].nextState;
+				var width = stateEngine[next].timelineStartPos - stateEngine[state].timelineStartPos;
+
+				stateEngine[prev].nextState = next;
+				stateEngine[next].prevState = prev;
+
+				delete stateEngine[state];
+
+				if ( timelineSections ) {
+					var count = timelineSections.length;
+					var increase = width / count;
+					var decrease = width / count;
+					var states = { next: [], prev: [] };
+					var key = "prev";
+
+					for ( var otherState in stateEngine ) {
+						if ( otherState == next ) {
+							key = "next";
+						}
+						else if ( otherState == "END" ) {
+							break;
+						}
+
+						if ( otherState != "START" && otherState != "ERROR" ) {
+							states[key].push( otherState );
+						}
+					}
+
+					states.next.reverse();
+
+					for ( var i = 0 ; i < states.prev.length ; i++ ) {
+						stateEngine[states.prev[i]].timelineStartPos += increase;
+						if ( $.inArray( states.prev[i], timelineSections ) > -1 ) {
+							increase += width / count;
+						}
+					}
+
+					for ( var i = 0 ; i < states.next.length ; i++ ) {
+						stateEngine[states.next[i]].timelineStartPos -= decrease;
+						if ( $.inArray( states.next[i], timelineSections ) > -1 ) {
+							decrease += width / count;
+						}
+					}
+				}
+			}
+
+			return stateEngine;
+		},
+
+		resizeStates: function( stateEngine, states ) {
+			// check all states exist
+			var allExist = true;
+
+			$.each( states, function( i, state ) {
+				if ( typeof stateEngine[state] == "undefined" ) {
+					allExist = false;
+					return false;
+				}
+			} );
+
+			if ( allExist ) {
+				// get total width of states
+				var start = stateEngine[states[0]].timelineStartPos;
+				var last = states[states.length - 1];
+				var next = stateEngine[last].nextState;
+
+				if ( typeof stateEngine[next] != "undefined" ) {
+					var end = stateEngine[next].timelineStartPos;
+					var totalWidth = end - start;
+					var sectionWidth = totalWidth / states.length;
+
+					$.each( states, function( i, state ) {
+						stateEngine[state].timelineStartPos = start + ( i * sectionWidth );
+					} );
+				}
+			}
+
+			return stateEngine;
+		},
+
+		buildStateEngine: function( states ) {
+			var prevState = states[0].name;
+			var timelineStateLength = 100 / ( states.length - 1 ); // use states.length - 1 to allow for the fact that the end state being returned
+			var timelineStartPos = 0;
+
+			StateEngine = {
+				ERROR: new State( "ERROR", "NotFound", null, null, 0, null )
+			};
+
+			$.each( states, function( i, state ) {
+				var stateClass = state.name == "END" ? StateEnd : State;
+
+				StateEngine[state.name] = new stateClass(
+					state.name,
+					state.card,
+					states[i + 1] ? states[i + 1].name : "END",
+					prevState,
+					timelineStartPos,
+					null
+				);
+
+				timelineStartPos += timelineStateLength;
+				prevState = state.name;
+			} );
+		}
+	}
+
+});

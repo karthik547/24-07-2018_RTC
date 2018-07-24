@@ -1,0 +1,226 @@
+window.rtc = window.rtc || {};
+window.rtc.overlay = window.rtc.overlay || {};
+var Overlay = Class.extend({
+	init: function(name,start,end,startFn,endFn){
+		this.name = name;
+		this.start = start;
+		this.end = end;
+		this.startFn=startFn ? startFn : rtc.overlay.show;
+		this.endFn=endFn ? endFn : rtc.overlay.hide;
+		this.isShowing=false;
+		this.patchTimings();
+	},
+	patchTimings:function() {
+	},
+	updateMain : function(time)
+	{
+		if((time >= this.start && time < this.end) && !this.isShowing) {	//If we're not showing and we should be
+			this.isShowing=true;
+			this.startFn(this.name);
+		} else if((time < this.start || time >= this.end) && this.isShowing) {
+			this.isShowing=false;
+			this.endFn(this.name);
+		}
+	},
+	update: function(time,playing) {
+		clearTimeout(this.inTimeout);
+		clearTimeout(this.outTimeout);	//Note - clearTimeout accepts undefined and already cleared timeouts.
+		if((time >= this.start && time < this.end) && !this.isShowing && !rtc.player.playerStatus.seeking()) {	//If we're not showing and we should be
+			this.updateMain(time);
+		} else if((time < this.start || time >= this.end) && this.isShowing) {
+			this.updateMain(time);
+		} else if((time < this.start && time > this.start - this.updateInterval) && playing) {
+			var _this = this;
+			consoleLog("Overlay in timeout set");
+			this.inTimeout = setTimeout(function() {
+				_this.updateMain.call(_this,_this.start);
+				},	(this.start - time) * 1000);
+		} else if((time < this.end && time > this.end - this.updateInterval) && playing) {
+			var _this = this;
+			consoleLog("Overlay out timeout set");
+			this.outTimeout = setTimeout(function() {
+				_this.updateMain.call(_this,_this.end);
+				},	(this.end - time) * 1000);
+		}
+
+	},
+	updateInterval: 1
+});
+$.extend(true, rtc.overlay, {
+	data: function(name) {
+		consoleLog('overlayData name:[' + name + '].');
+		var ret = rtc.overlay.dataForVisit(name, RTCVisit, RTCOverlayData);
+		ret = ret ? ret : {};
+		return ret;
+	},
+	hide: function(name) {
+		consoleLog('rtc.overlay.hide name:[' + name + '].');
+		var fnMap = rtc.overlay.fnMapHide;
+		var fn = fnMap[name] ? fnMap[name] : function() {consoleLog('No rtc.overlay.hide fn for name:[' + name + ']');};
+		fn(name);
+	},
+	show: function(name, offset) {
+		consoleLog('rtc.overlay.show name:[' + name + '], offset:[' + offset + '].');
+		var fnMap = rtc.overlay.fnMapShow;
+		var fn = fnMap[name] ? fnMap[name] : function() {consoleLog('No rtc.overlay.show fn for name:[' + name + ']');};
+		fn(name);
+	},
+	hideAll: function() {
+		$('#overlays').children().each(function() { $(this).hide();});
+		if ( rtc.overlay.fnMapHide ) {
+			for ( var i in rtc.overlay.fnMapHide ) {
+				if ( typeof ( rtc.overlay.fnMapHide[i] ) == "function" ) {
+					rtc.overlay.fnMapHide[i].call( rtc.overlay, i );
+				}
+			}
+		}
+	},
+	fade: function(name) {
+		$('#overlays').find("#" + name).rtcFadeOut(400);
+	},
+	fadeOutFast: function(name) {
+		$('#overlays').find("#" + name).rtcFadeOut('fast');
+	},
+	fadeIn: function(name, duration) {
+		rtc.overlay.fns[name](name);
+		$('#overlays').find('#'+ name).rtcFadeIn('fast');
+	},
+	fadeInFast: function(name) {
+		rtc.overlay.fadeIn(name, 'fast');
+	},
+	fadeInSlow: function(name) {
+		rtc.overlay.fadeIn(name, 'slow');
+	},
+	showDelay: function(name, fn, delay) {
+		setTimeout(function() {
+			fn(name);
+		}, delay);
+	},
+	performFadeIn: function( elem, duration, complete ) {
+		elem.fadeIn( duration, function() {
+			complete && complete();
+			clearTimeout( elem.data( "fadeinTimeout" ) );
+		} );
+	},
+	performFadeOut: function( elem, duration, complete ) {
+		elem.fadeOut( duration, function() {
+			complete && complete();
+			clearTimeout( elem.data( "fadeoutTimeout" ) );
+		} );
+	},
+	documentReady: function() {
+		if ( rtc.utils.overlaysShouldFadeTo( navigator.userAgent ) ) {
+			$.extend( rtc.overlay, {
+				performFadeIn: function( elem, duration, complete ) {
+					elem.show().fadeTo( duration, 0.99, function() {
+						complete && complete();
+
+						clearTimeout( elem.data( "fadeinTimeout" ) );
+					} );
+				},
+				performFadeOut: function( elem, duration, complete ) {
+					elem.fadeTo( duration, 0.01, function() {
+						complete && complete();
+						clearTimeout( elem.data( "fadeoutTimeout" ) );
+						$(this).hide();
+					} );
+				}
+			} );
+		}
+	}
+
+} );
+
+$.fn.rtcFadeIn = function( duration, complete ) {
+	var self = $( this );
+	var speed = duration in jQuery.fx.speeds ? jQuery.fx.speeds[duration] : ( duration || jQuery.fx.speeds._default );
+	var name = self.attr( "id" ) || self.attr( "class" );
+
+	if ( !self.is( ":visible" ) ) {
+		rtc.utils.track( "rtcFadeIn", { data: JSON.stringify( { name: name, duration: duration, speed: speed, actualTime: new Date(), videoTime: rtc.player.getCurrentTime() } ) } );
+	}
+
+	clearTimeout( self.data( "fadeinTimeout" ) );
+	clearTimeout( self.data( "fadeinErrorTimeout" ) );
+	clearTimeout( self.data( "fadeoutTimeout" ) );
+	clearTimeout( self.data( "fadeoutErrorTimeout" ) );
+
+	self.data( "fadeinTimeout", setTimeout( function() {
+		try {
+			self.stop( true, true );
+		}
+		catch ( ex ) {
+		}
+
+		self.show().css( "opacity", 1 );
+
+		complete && complete();
+	}, speed + 250 ) );
+
+	self.data( "fadeinErrorTimeout", setTimeout( function() {
+		if ( !self.is( ":visible" ) ) {
+			rtc.utils.track( "error.rtcFadeIn", { data: JSON.stringify( { name: name, duration: duration, speed: speed, actualTime: new Date(), videoTime: rtc.player.getCurrentTime() } ) } );
+		}
+	}, speed + 200 ) );
+
+	try {
+		self.stop( true, true );
+	}
+	catch ( ex ) {
+	}
+	rtc.overlay.performFadeIn( self, duration, complete );
+
+	if ( self.parent().attr( "id" ) == "overlays" ) {
+		var visibleOverlays = $( "#overlays" ).children().not( this ).filter( ":visible" );
+
+		if ( visibleOverlays.length > 0 ) {
+			var visibleOverlayNames = [];
+
+			$( visibleOverlays ).each( function( i, overlay ) {
+				visibleOverlayNames.push( $( overlay ).attr( "id" ) );
+			} );
+
+			rtc.utils.track( "warning", { data: JSON.stringify( { visible: visibleOverlayNames, actualTime: new Date(), videoTime: rtc.player.getCurrentTime() } ) } );
+		}
+	}
+};
+
+$.fn.rtcFadeOut = function( duration, complete ) {
+	var self = $( this );
+	var speed = duration in jQuery.fx.speeds ? jQuery.fx.speeds[duration] : ( duration || jQuery.fx.speeds._default );
+	var name = self.attr( "id" ) || self.attr( "class" );
+
+	if ( self.is( ":visible" ) ) {
+		rtc.utils.track( "rtcFadeOut", { data: JSON.stringify( { name: name, duration: duration, speed: speed, actualTime: new Date(), videoTime: rtc.player.getCurrentTime() } ) } );
+	}
+
+	clearTimeout( self.data( "fadeinTimeout" ) );
+	clearTimeout( self.data( "fadeinErrorTimeout" ) );
+	clearTimeout( self.data( "fadeoutTimeout" ) );
+	clearTimeout( self.data( "fadeoutErrorTimeout" ) );
+
+	self.data( "fadeoutTimeout", setTimeout( function() {
+		try {
+			self.stop( true, true );
+		}
+		catch ( ex ) {
+		}
+
+		self.hide().css( "opacity", 0 );
+
+		complete && complete();
+	}, speed + 250 ) );
+
+	self.data( "fadeoutErrorTimeout", setTimeout( function() {
+		if ( self.is( ":visible" ) ) {
+			rtc.utils.track( "error.rtcFadeOut", { data: JSON.stringify( { name: name, duration: duration, speed: speed, actualTime: new Date(), videoTime: rtc.player.getCurrentTime() } ) } );
+		}
+	}, speed + 200 ) );
+
+	try {
+		self.stop( true, true );
+	}
+	catch ( ex ) {
+	}
+	rtc.overlay.performFadeOut( self, duration, complete );
+};

@@ -1,0 +1,759 @@
+$.rtcCardVars = {
+	interfaceCardShowing: null
+};
+
+window.rtc = window.rtc || {};
+$.extend(true, rtc, {card: {
+	vars: {
+		showLoadingIconTimeout: null,
+		xhr: {},
+		validationErrors: [],
+		shouldResume: false,
+		showGiftClaimCard: false
+	},
+	wrapperWidth: function() {
+		return $(window).width();
+	},
+	containerMinWidth: function() {
+		return parseInt( String( $( "#site_container" ).css( "min-width" ) ).replace( /[^0-9\.]+/g, "" ) );
+	},
+	showLoadingIcon: function( force ) {
+		clearTimeout( this.vars.showLoadingIconTimeout );
+		this.vars.showLoadingIconTimeout = setTimeout( function() {
+			if ( force || ( rtc.player && rtc.player.video && rtc.player.video.status().currentTime >= rtc.player.video.status().duration ) ) { // don't show loading icon it video hasn't reached the end
+				$( "#loading_icon" ).stop().show().animate( { opacity: 0.5 }, 250 );
+			}
+		}, 100 );
+	},
+	hideLoadingIcon: function() {
+		clearTimeout( this.vars.showLoadingIconTimeout );
+		var icon = $( "#loading_icon" );
+		var opacity = icon.css( "opacity" );
+		icon.stop().delay( 250 ).animate( { opacity: 0 }, 500, function() {
+			$( this ).hide();
+		} );
+	},
+	posCard: function(card) {
+		if (typeof card == "undefined") {
+			card = $(".ui-dialog-content").filter(function() {
+				return $(this).closest(".ui-dialog").css("display") == "block";
+			});
+
+			if (card.length == 0) {
+				return;
+			}
+		}
+
+		var mt = 114, ml = -320, mww = rtc.card.containerMinWidth(), mwh = $('#wrapper_container').height(), c = mww / 2,
+			cw = card.closest( ".ui-dialog" ).outerWidth(),
+			ch = card.closest( ".ui-dialog" ).outerHeight(),
+			vh = $( "#playingVideo,#jquery_jplayer_videoplayer" ).height();
+
+		if (rtc.utils.isHD && rtc.utils.isHD()) {
+			mt = 126;
+			if (card.hasClass("sideCard")) {
+				mt = 125;
+				ml = -319;
+			}
+		}
+		else {
+			if (card.hasClass("sideCard")) {
+				mt = ch - 10 <= vh ? 102 : -5;
+				ml = -( Math.round( cw / 2 ) - 8 );
+			}
+		}
+
+		if (rtc.card.wrapperWidth() < mww) {
+			card.closest(".ui-dialog").css({
+				left : 0,
+				top : 0,
+				margin : mt + "px 0 0 " + (ml + c) + "px"
+			});
+		} else {
+			card.closest(".ui-dialog").css({
+				left : "50%",
+				top : 0,
+				margin : mt + "px 0 0 " + ml + "px"
+			});
+		}
+	},
+	hideCards: function() {
+		consoleLog('hideCards');
+		$( ".card form input, .sideCard form input" ).blur(); //Fix issue where autocomplete would appear over video.
+		$('.card, .sideCard').dialog('close');
+		$.rtcCardVars.interfaceCardShowing = null; // FIXME .rtcCard('dismiss') would rather call .rtcCard('dismiss'); or similar.
+	},
+	isCardVisible: function(name) {
+		if ( name ) {
+			return $('.card' + name + ':visible').length > 0;
+		}
+		return $(".cardDialog:visible").length > 0;
+	},
+	getCardUrl: function( cardId, state, visit, config ) {
+		config = config || RTCConfig;
+		var prefix = "card";
+		if ( StateEngine[state] && StateEngine[state].getUrl( visit ) == cardId ) {
+			if ( StateEngine[state].getCardUrl ) {
+				return StateEngine[state].getCardUrl( cardId, visit );
+			}
+			else if ( StateEngine[state].cardPrefix ) {
+				prefix = StateEngine[state].cardPrefix();
+			}
+		}
+		if ( config.loadedLanguage ) {
+			prefix = ( config.loadedLanguage == "en" ? "" : ( config.loadedLanguage + "/" ) ) + prefix;
+		}
+		else if ( visit.language && visit.language != "en" ) {
+			prefix = ( visit.language == "en" ? "" : ( visit.language + "/" ) ) + prefix;
+		}
+		return RTCConfig.baseDir + '/cards/' + prefix + cardId + '.xhtml'
+	},
+    loadCard: function(card, cachebuster, complete, retry) {
+        retry = retry || 0;
+
+        return $.ajax({
+            url: card + cachebuster,
+            dataType: "html",
+            complete: function(response, status, xhr) {
+                if (status != "abort") {
+                    if (status == "error") {
+                        var error = "error.card.notFound",
+                            errorData = {
+                                card: card,
+                                status: response.status
+                            };
+
+                        if (retry++ < 5) {
+                            error += ".retry";
+                            rtc.card.loadCard(card, cachebuster, complete, retry);
+                        } else {
+                            $('#card').load(RTCConfig.baseDir + '/cards/cardNotFound.xhtml' + cachebuster, function(response, status, xhr) {
+                                if (status != "error") {
+                                    $('#errorMessage').text(card + ' not found.');
+                                }
+                            });
+                        }
+
+                        rtc.utils.track(error, {
+                            data: JSON.stringify(errorData)
+                        });
+                    }
+                    else {
+                        complete && complete(response);
+                    }
+                }
+            }
+        });
+    },
+	showCardCommon: function(name, cardType, loadedFn, showFn, canDisplayFn) {
+		try {
+			if ( rtc.card.vars.xhr[cardType] !== null ) {
+				rtc.card.vars.xhr[cardType].abort();
+			}
+		}
+		catch ( e ) {
+		}
+		rtc.utils.hideFlashOnAndroid();
+		$.rtcVideoPlaying = false;
+		if (!showFn) {
+			rtc.player.controls.playBtnPause();
+		}
+		else {
+			showFn();
+		}
+		if (!canDisplayFn) {
+			canDisplayFn = function() {
+				return true;
+			}
+		}
+		var cardId = name.replace('-fsi.swf', '').replace('1-9', 'FSIDetails');
+		var cachebuster = '?cachebuster=' + rtc.utils.cacheBuster();
+//			cardId = 'Blank';
+		var card = rtc.card.getCardUrl( cardId, RTCVisit.currentState, RTCVisit );
+		if ( name != "problemFeedback" ) {
+			rtc.utils.track('card.show', {card:card});
+		}
+		$('.card, .sideCard').dialog('close');
+		$('.' + cardType).remove();
+		$.rtcCardVars.isLoading = true;
+		if ( cardId != "androidplay" ) {
+			this.showLoadingIcon( cardType == "sideCard" );
+		}
+		rtc.card.loadCard(card, cachebuster, function(response) {
+			if (canDisplayFn()) {
+				rtc.card.vars.xhr[cardType] = null;
+				rtc.card.hideLoadingIcon();
+				$.rtcCardVars.isLoading = false;
+
+				// only actually display the card if the video is not playing.
+				// prevents problem where card was still loading when skipped back.
+				if (!$.rtcVideoPlaying) {
+					$('#' + cardType).html(response.responseText);
+				}
+				else {
+					consoleLog('Ignoring card load response since video playing.');
+				}
+
+				if (loadedFn) {
+					loadedFn();
+				}
+			}
+		});
+	},
+	showCard: function(state, alwaysPlay) {
+		//consoleLog('showCard-' + state+ ' ' + alwaysPlay);
+		if ( rtc.player.video ) {
+			rtc.player.video( "clearMedia" );
+		}
+		// resize jplayer video element to 1x1 instead of 0x0 to fix processor load issue in Firefox 3.6
+		// Also fixes issue with compatibilty view on IE11/Win8.1 where the video player did not disappear when shrunk to 0x0 by clearMedia.
+		$('#jquery_jplayer_videoplayer object').width(1).height(1);
+
+		rtc.utils.trackVideoPlayerDimensions('player.dimensions');
+		rtc.state.set(state);
+		rtc.timeline.setPos(state, 0);
+		var url = StateEngine[state].getUrl( RTCVisit );
+		if (url && !alwaysPlay) {
+			if(!StateEngine[state].cardIsShowing()) {
+				this.showCardCommon(url, 'card', StateEngine[state].cardLoaded, null, function() {
+					return state == RTCVisit.currentState;
+				} );
+			}
+			else {
+				StateEngine[state].cardLoaded();
+			}
+		}
+		else {
+			if ( typeof StateEngine[state].gotoState != "undefined" ) {
+				StateEngine[state].gotoState( state );
+			}
+			else if (rtc.utils.isAndroid() && !alwaysPlay) {
+				this.showCardCommon('androidplay', 'card', function() {});
+			}
+			else {
+				rtc.player.controls.playNext(rtc.session.save, 2000);
+			}
+		}
+	},
+	showCardByName: function(name, showFn) {
+		consoleLog('showCardByName');
+		this.showCardCommon(name, 'card', null, showFn);
+	},
+	showSideCard: function(name, loadedFn) {
+		var videoPlayerStatus = rtc.player.video ? rtc.player.video.status() : {};
+
+		this.vars.shouldResume = ( !videoPlayerStatus.srcSet || !videoPlayerStatus.paused ) && $.rtcCardVars.interfaceCardShowing === null;
+
+		this.showCardCommon(name, 'sideCard', loadedFn);
+	},
+	toggleSideCard: function(name, loadedFn) {
+		name = this.sideCardNameMap(name);
+		consoleLog('toggleSideCard:' + name);
+		if ('website' === name) {
+			window.open( rtc.utils.getWebsiteURL( RTCConfig, RTCVisit ), '_blank');
+			return;
+		}
+		if (this.toggleSideCardHandler(name)) {
+			return;
+		}
+		if (this.isCardVisible(this.sideCardIsVisibleMap(name))) {
+			$('.sideCardClose').click(); // FIXME .rtcCard('dismiss'). This will invoke rtc.card showCardOrResume function.
+		}
+		else {
+			rtc.card.showSideCard(name, loadedFn);
+			rtc.player.controls.pause();
+		}
+	},
+	toggleSideCardHandler: function(name) {
+		return false;
+	},
+	sideCardNameMap: function(name) {
+		return name;
+	},
+	sideCardIsVisibleMap: function(name) {
+		return name;
+	},
+	addHiddenField: function( form, name, value ) {
+		$( form ).append( "<input type='hidden' name='" + name + "' value='" + value + "'/>" );
+	},
+	bValidatorOptions: {
+		errorClass:'ui-state-error',
+		template:'<div></div>', // don't show tooltip position: {x:'left', y:'top'}, offset: {x:50},
+		onBeforeAllValidations: function() {
+			rtc.card.vars.validationErrors = [];
+		},
+		onValidateFail:function(el, validatorAction, errors) {
+			if(el.is('select')){
+				// el.siblings('.label').css({color:'red'});
+				el.siblings().find('.dropDownValidation').css({'background-color':'#B3522D', 'border':'1px solid #e34902','color':'#aaaaaa'});
+			}
+			if (el.is('input[type=radio]') || el.is('input[type=checkbox]')) {
+				if (errors && errors.length) {
+					$('.ui-dialog-buttonpane-warning').text(errors[0]);
+				}
+			}
+			rtc.card.vars.validationErrors.push( el );
+		}
+	},
+	playEndCardAudio: function( url ) {
+		if ( rtc.utils.supportsBackgroundAudio() && $( "#audio_player" ).length ) {
+			$( "#audio_player" ).jPlayer( {
+		        ready: function( event ) {
+		            $( this )
+			            .jPlayer( "setMedia", {
+			                mp3: url || ( rtc.utils.getBaseUrl() + "audio/end_card_mixdown.mp3" )
+			            } )
+			            .jPlayer( "play" )
+			            .jPlayer( "volume", globalVolume )
+			            .jPlayer( "mute", globalMute );
+		        },
+		        //swfPath: "http://www.jplayer.org/2.1.0/js",
+				swfPath: "/rtc/js/extlibs",
+		        supplied: "mp3"
+		    } );
+		}
+	},
+	showGiftClaimCard: function() {
+		return false;
+	}
+}});
+
+(function($) {
+	// Monkey Patch jquery ui dialog _createButtons function to put in additional text if necessary.
+	var attrFn = $.attrFn || {
+		val: true,
+		css: true,
+		html: true,
+		text: true,
+		data: true,
+		width: true,
+		height: true,
+		offset: true,
+		click: true
+	};
+	$.ui.dialog.prototype._createButtons = function(buttons) {
+		var self = this,
+			hasButtons = false,
+			uiDialogButtonPane = $('<div></div>')
+				.addClass(
+					'ui-dialog-buttonpane ' +
+					'ui-widget-content ' +
+					'ui-helper-clearfix'),
+			uiButtonPaneText= $( "<div></div>" )
+				.addClass( "ui-dialog-buttonpane-text" )
+				.html(self.options.buttonPaneText),
+			uiButtonPaneWarningText= $( "<div></div>" )
+				.addClass( "ui-dialog-buttonpane-warning" ),
+			uiButtonSet = $( "<div></div>" )
+				.addClass( "ui-dialog-buttonset" )
+				.appendTo( uiDialogButtonPane );
+
+		if (self.options.buttonPaneClass) {
+			uiDialogButtonPane.addClass( self.options.buttonPaneClass );
+		}
+		if (self.options.buttonPaneText) {
+			uiButtonPaneText.appendTo( uiDialogButtonPane );
+		}
+		uiButtonPaneWarningText.appendTo( uiDialogButtonPane );
+
+		// if we already have a button pane, remove it
+		self.uiDialog.find('.ui-dialog-buttonpane').remove();
+
+		if (typeof buttons === 'object' && buttons !== null) {
+			$.each(buttons, function() {
+				return !(hasButtons = true);
+			});
+		}
+		if (hasButtons) {
+			$.each(buttons, function(name, props) {
+				props = $.isFunction( props ) ?
+					{ click: props, text: name } :
+					props;
+				var button = $('<button type="button"></button>')
+					.click(function() {
+						props.click.apply(self.element[0], arguments);
+					})
+					.appendTo(uiButtonSet);
+				// can't use .attr( props, true ) with jQuery 1.3.2.
+				$.each( props, function( key, value ) {
+					if ( key === "click" ) {
+						return;
+					}
+					if ( key in attrFn ) {
+						button[ key ]( value );
+					} else {
+						button.attr( key, value );
+					}
+				});
+				if ($.fn.button) {
+					button.button();
+				}
+			});
+			uiDialogButtonPane.appendTo(self.uiDialog);
+		}
+	};
+
+	$.fn.rtcPopulateDropdown = function(options) {
+		$.each( this, function( i, dropdown ) {
+			$.each( options, function( value, text ) {
+				$( dropdown ).append( "<option value='" + value + "'>" + text + "</option>" );
+			} );
+		} );
+	};
+
+	$.fn.rtcCard = function(options) {
+		var defaults = {
+			dialogClass : 'cardDialog',
+			openFn: function(cardElem, event, ui) {
+				$.rtcCardVars.interfaceCardShowing = cardElem.attr('id');
+
+				$( "#cardEnd li" )
+					.unbind( "click.rtcCardButton" )
+					.bind( "click.rtcCardButton", function() {
+						rtc.utils.track( "card.button.click", { data: JSON.stringify(
+							{ card: $( this ).closest( ".card" ).attr( "id" ), button: $( this ).attr( "id" ) } ) } );
+					}
+				);
+			},
+			successFn: function() {
+				$.rtcCardVars.interfaceCardShowing = null;
+				rtc.player.controls.playNext(options.saveFn);
+			}
+		};
+		options = $.extend(defaults, options);
+		return $(this).rtcCardCommon(options);
+	};
+
+	$.fn.rtcSideCard = function(options) {
+		var showCardOrResume = function() {
+			if ($.rtcCardVars.interfaceCardShowing) {
+				$('#' + $.rtcCardVars.interfaceCardShowing).dialog('open');
+			}
+			else {
+				rtc.utils.showVideoPlayerForSideCardByUserAgent();
+
+				if ( rtc.card.vars.shouldResume ) {
+					rtc.player.controls.resume();
+				}
+			}
+
+			$( window.rtc ).trigger( "rtc.sideCard.showCardOrResume", {} );
+		};
+
+		var defaults = {
+			dialogClass : 'cardDialog sideCardDialog',
+			width : 647,
+			height: 346,
+			xPos: 180,
+			openFn: function() {
+				if ( $.rtcCardVars.interfaceCardShowing === null ) {
+					rtc.utils.hideVideoPlayerForSideCardByUserAgent();
+				}
+
+//				var inner = $('<div/>').addClass('cardWrapper ui-widget-content');
+				$('.sideCardDialog:visible').each( function() {
+					if ( $( '.sideCardClose', this ).length == 0 ) {
+						var inner = $('<div/>').append($('<div/>').addClass('cardWrapper ui-widget-content'));
+						$(this).wrapInner(inner).prepend($('<div class="sideCardClose"/>'));
+						if ($(this).length) {
+							$('.sideCardClose', this).click(function() {
+								$(this).parent().find('.sideCard').dialog('close');
+								showCardOrResume();
+								rtc.utils.track( "card.close", { card: $( this ).parent().find( ".ui-dialog-content:first" ).attr( "id" ) } );
+							});
+						}
+					}
+				});
+			},
+			close: function() {
+				var wrapper = $( this ).closest( ".cardWrapper" );
+				wrapper.closest( ".sideCardDialog" ).find( ".sideCardClose" ).remove();
+				wrapper.children().appendTo( wrapper.closest( ".sideCardDialog" ) );
+				wrapper.parent().remove();
+			},
+			dismissFn: showCardOrResume,
+			successFn: showCardOrResume
+		};
+		options = $.extend(defaults, options);
+		return $(this).rtcCardCommon(options);
+	};
+
+	$.fn.rtcCardCommon = function(options) {
+		function showPlaceholders(el) {
+			if(!Modernizr.input.placeholder){
+
+		        $(el).find("input[placeholder], textarea[placeholder]").each(function () {
+					var $this = $(this);
+					if($this.val() == ""){
+		                $this
+		                .val($this.attr("placeholder"))
+						.css({'color': '#cccccc'})
+		                .focus(function(){
+		                    if($this.val() == $this.attr("placeholder")) {
+		                        $this.val("");
+								$this.css({'color': '#000000'});
+		                    }
+		                })
+		                .blur(function(){
+		                    if($this.val() == "") {
+		                        $this.val($this.attr("placeholder"));
+								$this.css({'color': '#cccccc'});
+		                    }
+		                });
+		            }
+		        });
+
+			}
+		}
+
+		function clearPlaceholders(el) {
+			if(!Modernizr.input.placeholder){
+		        $(el).find("input[placeholder], textarea[placeholder]").each(function () {
+					var $this = $(this);
+					if($this.val() == $this.attr("placeholder")){
+		                $this.val('');
+					}
+		        });
+
+			}
+		}
+
+		function trimFieldValues(el) {
+			$( "input[type=text], input[type=email], textarea", el ).each( function() {
+				var v = $( this ).val();
+
+				if ( typeof v == "string" ) {
+					$( this ).val( $.trim( v ) );
+				}
+			} );
+		}
+
+		var borderWidth = 5;
+		var $this = $(this);
+		var defaults = {
+			// card options
+			autoPopulateTextFields : [],
+			autoPopulateCheckboxes : {},
+			autoPopulateRadio : [],
+			autoPopulateDropdowns : [],
+			enhanceRadio : true,
+			enhanceCheckbox : true,
+			// dialog options
+			autoOpen : true,
+			draggable : false,
+			resizable : false,
+			width : 636 - 2*borderWidth,
+			height : 356 - 2*borderWidth,
+			closeOnEscape: false,
+			show: 'fade',
+			hide: 'fade',
+			position : [ 0, 0 ],
+			openFn: function() {},
+			close : function() {
+				$(window).unbind('.' + $this.attr('id') + '.rtcCard');
+			},
+			buttons: {},
+			cardButtons: {},
+			readyFn: function() {},
+			successFn: function() {},
+			dismissFn: function() {},
+			buttonPaneText: '',
+			step: null,
+			hiddenFields: [],
+			zIndex: 4000 + $( ".cardDialog" ).length
+		};
+
+		if ( $( "#site-body" ).length ) {
+			defaults.appendTo = "#site-body";
+		}
+
+		options = $.extend(defaults, options);
+		$.each(options.cardButtons, function(name, fn) {
+			if ( name == "Skip" ) {
+				options.buttons[name] = function() {
+					fn();
+					$(this).dialog('close');
+					rtc.utils.track("card.skip",{card:$(this).attr("id")});
+					options.successFn();
+				}
+			}
+			else {
+				options.buttons[name] = function() {
+					$(this).find('select').each(function(){
+						$(this).show().css({
+							position:"absolute",
+							marginTop:"8px",
+							height:"0px",
+							border: "none"
+						});
+					}).change(function(){
+						//$(this).siblings('.label').css({color:'white'});
+						$('.dropDownValidation').css({'background-color':'#ffffff','border':'none','color':'black'});
+					});
+
+					clearPlaceholders($(this).find('form'));
+					trimFieldValues($(this).find('form'));
+
+					var validator = $(this).find('form').bValidator(rtc.card.bValidatorOptions);
+					if (options.validate) {
+						validator = {
+								validate: function(b) {
+									return options.validate();
+								}
+						};
+					}
+	//				consoleLog('validating');
+					$('#buttonPaneWarningText').text('');
+					if(validator.validate(false)) {
+						if ( fn() !== false ) {
+							$(this).dialog('close');
+							rtc.utils.track("card.submit",{card:$(this).attr("id")});
+							options.successFn();
+						}
+					}
+					else {
+						showPlaceholders($(this));
+						try {
+							var errors = [], arr = rtc.card.vars.validationErrors;
+
+							for ( var i = 0 ; i < arr.length ; i++ ) {
+								var name = arr[i].attr( "name" );
+
+								if ( name && $.inArray( name, errors ) < 0 ) {
+									errors.push( name );
+								}
+							}
+
+							rtc.utils.track( "card.submit.validationfailed", {
+								form: JSON.stringify( { id: this.id, fields: $( "form", this ).serialize(), errors: errors } ) } );
+						}
+						catch ( e ) {}
+					}
+				};
+			}
+		});
+
+		if ( options.step !== null ) {
+			$( this ).append( "<div class='card-step'>Step " + options.step.join( " of " ) + "</div>" )
+		}
+
+		options.open = function(event, ui) {
+			var cardElem = $(this);
+			rtc.card.posCard( cardElem );
+			$(window).bind('resize.' + cardElem.attr('id') + '.rtcCard', function() {
+				rtc.card.posCard( cardElem );
+			});
+			$('.ui-dialog-buttonpane-warning').text('');
+			options.openFn($(this), event, ui);
+		};
+
+		$.each( options.hiddenFields, function( name, value ) {
+			if ( typeof value == "object" ) {
+				$.each( value, function( name, value ) {
+					$this.find( "form" ).prepend( "<input type='hidden' name='" + name + "' value='" + value + "'/>" );
+				} );
+			}
+			else if ( typeof RTCVisit[value] != "undefined" ) {
+				$this.find( "form" ).prepend( "<input type='hidden' name='" + value + "' value='" + RTCVisit[value] + "'/>" );
+			}
+		} );
+
+		this.each(function() {
+			var autoPopulate;
+			$(this).dialog(options).css('background-color', 'transparent');
+			if ( typeof options.autoPopulateTextFields == "function" ) {
+				autoPopulate = options.autoPopulateTextFields();
+			}
+			else {
+				autoPopulate = { visit: RTCVisit, fields: options.autoPopulateTextFields };
+			}
+			$.each(autoPopulate.fields, function(index, field) {
+				$('input[name=' + field + '],textarea[name=' + field + ']').val(autoPopulate.visit[field]);
+			});
+			if ( typeof options.autoPopulateRadio == "function" ) {
+				autoPopulate = options.autoPopulateRadio();
+			}
+			else {
+				autoPopulate = { visit: RTCVisit, fields: options.autoPopulateRadio };
+			}
+			$.each(autoPopulate.fields, function(index, field) {
+//				consoleLog('field:' + field);
+//				consoleLog('value:' + RTCVisit[field]);
+				$('input[name=' + field + ']').filter('[value=' + autoPopulate.visit[field] + ']').attr('checked', true);
+			});
+			if ( typeof options.autoPopulateCheckboxes == "function" ) {
+				autoPopulate = options.autoPopulateCheckboxes();
+			}
+			else {
+				autoPopulate = { visit: RTCVisit, fields: options.autoPopulateCheckboxes };
+			}
+			$.each(autoPopulate.fields, function(field, values) {
+				$.each(values, function(index, value) {
+					if (-1 != $.inArray(value, autoPopulate.visit[field])) {
+						$('input[name=' + field + '][value=' + value +']').prop('checked', true);
+					}
+				});
+			});
+			$(this).find('select').selectmenu({
+				style:'popup',
+				width:RTCConfig.selectMenuWidth,
+				menuWidth:RTCConfig.selectMenuWidth
+			}).css({marginTop:'2px', marginBottom:'2px', padding:'1px'});
+			// Fix to prevent autocomplete list from remaining on screen (and over video once form is submitted) if a select menu is clicked on.
+			$( ".ui-selectmenu", this ).bind( "mousedown.selectmenu", function() {
+				$( "form input[type=text]" )
+					.attr( "autocomplete", "off" )
+					.unbind( "focus.autocompletefix" )
+					.bind( "focus.autocompletefix", function() {
+					$( "form input[type=text]" ).attr( "autocomplete", "on" );
+					} );
+			} );
+
+			autoPopulate = { visit: RTCVisit, fields: options.autoPopulateDropdowns };
+			$.each(autoPopulate.fields, function(field, fieldName) {
+				var match = fieldName.match( /(cntrycode):([a-z]+)/i );
+				var value = null;
+
+				if (match) {
+					fieldName = match[1];
+					value = match[2];
+				}
+
+				if (autoPopulate.visit[fieldName]) {
+					value = autoPopulate.visit[fieldName];
+				}
+				else if (fieldName == 'cntrycode') {
+					value = rtc.utils.geoIp.getCountryCode( value || "US" );
+				}
+
+				if (value !== null) {
+					$('select[name=' + fieldName + ']').selectmenu('value', value);
+				}
+			});
+
+//			$(this).find('.radio').buttonset(); // Must be after autoPopulateRadio so that checked styling looks ok!
+			if (options.enhanceRadio) {
+				$(this).find('input[type=radio]').checkBox();
+			}
+			if (options.enhanceCheckbox) {
+				$(this).find('input[type=checkbox]').checkBox();
+			}
+			showPlaceholders($(this));
+			rtc.utils.addVisitTrackParameter($(this));
+
+		});
+
+		options.readyFn();
+
+		return this;
+	};
+
+	$.fn.rtcCardInitDropdowns = function( options ) {
+		var form = $( this );
+		$.each( options, function( index, value ) {
+			if ( RTCVisit[value] ) {
+				form.find( "select[name=" + value + "]" ).selectmenu( "value", RTCVisit[value] );
+			}
+		} );
+	}
+})(jQuery);

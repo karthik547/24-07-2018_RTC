@@ -1,0 +1,257 @@
+window.rtc = window.rtc || {};
+window.rtc.player = window.rtc.player || {};
+window.rtc.player.buffering = window.rtc.player.buffering || {};
+$.extend(true, rtc.player.buffering, {
+    v2: {
+        vars: {
+            activated: false,
+            status: "playing",
+            count: 0
+        },
+
+        /**
+         * Activates buffering logic v2
+         */
+        activate: function() {
+            if (!this.activated()) {
+                this.activated(true);
+                this.disableV1BufferingLogic();
+            }
+        },
+
+        /**
+         * Disables buffering logic v1
+         */
+        disableV1BufferingLogic: function() {
+            $.each(rtc.player.buffering, this.disableV1BufferingLogicMethod);
+
+            rtc.player.buffering.status = this.v1BufferingLogicStatusReplacement;
+        },
+
+        /**
+         * Disables a buffering logic v1 method. This will prevent buffering logic v1 from intefering with v2.
+         * This is not the ideal solution but the buffering logic is too tightly coupled with the rest of the
+         * JavaScript.
+         *
+         * @param {string} key   Buffering logic v1 object key
+         * @param {string} value Buffering logic v1 object value
+         */
+        disableV1BufferingLogicMethod: function(key, value) {
+            if (rtc.player.buffering.v2.shouldDisableV1BufferingLogicMethod(key, value)) {
+                /**
+                 * Empty function to disable buffering logic v1 method
+                 */
+                rtc.player.buffering[key] = function() {};
+            }
+        },
+
+        /**
+         * Checks if the v1 buffering logic method should be disabled
+         *
+         * @param {string} key   Object key
+         * @param {mixed}  value Object value
+         *
+         * return {boolean}
+         */
+        shouldDisableV1BufferingLogicMethod: function(key, value) {
+            return typeof value === "function" && key != "forceShow";
+        },
+
+        /**
+         * Replacement method for rtc.player.buffering.status to prevent issues with audio continuing to play
+         * when the video is buffering
+         *
+         * @return {string}
+         */
+        v1BufferingLogicStatusReplacement: function() {
+            return rtc.player.buffering.v2.vars.status == "buffering" ? "buffering" : "playing";
+        },
+
+        /**
+         * Checks if buffering logic v2 is activated
+         *
+         * @param {boolean} [activated] If specified, changes activated value
+         *
+         * @param {boolean} True, if buffering logic v2 is activated, else, false
+         */
+        activated: function(activated) {
+            if (typeof activated != "undefined") {
+                this.vars.activated = activated;
+            }
+
+            return this.vars.activated;
+        },
+
+        /**
+         * Checks if buffering logic v2 should be activated.
+         *
+         * @param {string} userAgent Browser user agent
+         *
+         * @return {boolean} True, if buffering logic v2 should be activated, else, false
+         */
+        shouldActivate: function(userAgent) {
+            var chrome = userAgent.match(/(crios|chrome|chromium)\/([0-9]+)/i),
+                firefox = userAgent.match(/firefox\/([0-9]+)/i),
+                safari = userAgent.match(/version\/([0-9]+).+safari/i);
+
+            // Disable this buffering logic on Edge and iPad, to prevent issues where the icon didn't hide
+            if (userAgent.match(/edge|ipad/i)) {
+                return false;
+            }
+
+            if (chrome) {
+                return chrome[2] >= 54;
+            }
+
+            if (firefox) {
+                return firefox[1] >= 53;
+            }
+
+            if (safari) {
+                return safari[1] >= 10;
+            }
+
+            return false;
+        },
+
+        /**
+         * Checks if browser is a safari HTML5 or iOS browser.
+         *
+         * @param {string} userAgent Browser user agent
+         *
+         * @return {boolean} True, if browser is Safari or iOS, else, false
+         */
+        isSafariOrIos: function(userAgent) {
+            var safari = userAgent.match(/version\/([0-9]+).+safari/i),
+                ios = userAgent.match(/iPhone|iPad|iPod/);
+
+            if (ios) {
+                return true;
+            } else if (safari) {
+                return safari[1] >= 10;
+            }
+
+            return false;
+        },
+
+        /**
+         * Checks if browser is Safari on MacOS
+         *
+         * @param {string} userAgent Browser user agent
+         *
+         * @return {boolean} True if browser is Safari on MacOS, else false
+         */
+        isSafariOnMacOS: function(userAgent, platform) {
+            var safari = userAgent.match(/version\/([0-9]+).+safari/i) != null,
+                macOS = platform.indexOf("Mac") > -1;
+
+            return safari && macOS;
+        },
+
+        /**
+         * HTML5 media player "stalled" event handler
+         *
+         * @param {Object} status     jPlayer status object
+         */
+        stalled: function(status) {
+            if (this.shouldActivate(navigator.userAgent)) {
+                this.activate();
+
+                if (!this.isSafariOnMacOS(navigator.userAgent, navigator.platform)) {
+                    this.waiting(status);
+                }
+            }
+        },
+
+        /**
+         * HTML5 media player "waiting" event handler. Pauses the other media player and shows the buffering icon.
+         *
+         * @param {Object} status     jPlayer status object
+         */
+        waiting: function(status) {
+            if (this.activated() && this.vars.status == "playing") {
+                this.vars.status = "buffering";
+                this.showBufferingIcon();
+
+                rtc.player.audio("pause");
+                rtc.player.events.playingInterval.clear();
+                rtc.player.playerStatus.set("buffering");
+                rtc.utils.track("browserBuffering.v2.start", this.getEventData(status));
+            }
+        },
+
+        /**
+         * HTML5 media player "playing" event handler. Plays the other media player and hides the buffering icon.
+         *
+         * @param {Object} status     jPlayer status object
+         */
+        playing: function(status) {
+            if (this.activated()) {
+                this.vars.status = "playing";
+                if (!this.isSafariOrIos(navigator.userAgent)) {
+                    this.hideBufferingIcon();
+                }
+
+                rtc.player.playerStatus.set("playing");
+                rtc.utils.track("browserBuffering.v2.end", this.getEventData(status));
+            }
+        },
+
+        /**
+         * HTML5 media player "timeupdate" event handler. Hides the buffering icon.
+         *
+         * @param {number} currentTime     Current time from latest timeUpdate event
+         */
+        timeupdate: function(currentTime) {
+            if (this.activated() && this.vars.status === "playing" &&
+                currentTime > 0 && this.isSafariOrIos(navigator.userAgent)) {
+                this.hideBufferingIcon();
+            }
+        },
+
+        /**
+         * Gets buffering data to store when tracking a buffering event
+         *
+         * @param {Object} status jPlayer status object
+         * @param {number} time   Current time
+         *
+         * @return {Object}
+         */
+        getEventData: function(status, time) {
+            time = time || (new Date()).getTime();
+
+            return {
+                data: JSON.stringify({
+                    time: time,
+                    playhead: status.currentTime
+                })
+            };
+        },
+
+        /**
+         * Shows the buffering icon
+         */
+        showBufferingIcon: function() {
+            $("#buffering_icon").fadeIn();
+        },
+
+        /**
+         * Hides the buffering icon
+         */
+        hideBufferingIcon: function() {
+            clearTimeout(rtc.player.buffering.vars.showTimeout);
+            $("#buffering_icon").fadeOut();
+        },
+
+        /**
+         * Shows full low Bandwidth error card
+         */
+        showBandwidthWarningIfCount: function() {
+            this.vars.count++;
+
+            if (3 === this.vars.count && RTCConfig.dynamicLowBandwidth) {
+                rtc.utils.showLowBandwidthWarningCard(false);
+            }
+        }
+    }
+});

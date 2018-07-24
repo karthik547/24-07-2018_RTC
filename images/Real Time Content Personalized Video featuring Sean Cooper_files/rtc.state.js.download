@@ -1,0 +1,241 @@
+var valueIfPBS = function(pbsValue, defaultValue) {
+	return rtc.utils.isPBS() ? pbsValue : defaultValue;
+};
+var stateIfPBS = function(pbsState, defaultState) {
+	return valueIfPBS(pbsState, defaultState);
+};
+var State = Class.extend({
+	init: function(name,url,nextState,prevState,timelineStartPos,timelineTooltip){
+		this.name = name;
+		this.url = url;
+		this.nextState = nextState;
+		this.prevState = prevState;
+		this.timelineStartPos = timelineStartPos;
+		this.timelineTooltip = timelineTooltip;
+	},
+	getUrl: function(visit){
+		return this.url;
+	},
+	getNextState: function(visit) {
+		return this.nextState;
+	},
+	getPrevState: function(visit) {
+		return this.prevState;
+	},
+	nextCard: function(visit){
+		return this.nextState;
+	},
+	prevCard: function(visit){
+		return this.prevState;
+	},
+	getTimelinePixelPos: function(timelinePercent){
+		return Math.round( ( $( "#timeline" ).width() || 770 ) * ( timelinePercent / 100 ) );
+	},
+	timelinePos: function(percent){
+		var start = this.getTimelinePixelPos( this.timelineStartPos );
+		var sectionWidth = this.getTimelinePixelPos( StateEngine[this.nextState].timelineStartPos ) - start;
+		return start + ( sectionWidth * ( percent / 100 ) );
+	},
+	percentFromTimeline: function(timelinePixelPos){
+		var start = this.getTimelinePixelPos( this.timelineStartPos );
+		var sectionWidth = this.getTimelinePixelPos( StateEngine[this.nextState].timelineStartPos ) - start;
+		return Math.min( 100, 100 * ( timelinePixelPos - start ) / sectionWidth );
+	},
+	cardIsShowing: function() {
+		return this.url && $('#card' + this.url.replace('-', '') + ':visible').length;
+	},
+	cardLoaded: function() {},
+	stateSelectedOnTimeline: function(visit) {}
+});
+var State1_7 = State.extend({
+	getUrl: function(visit){
+		visit = visit ? visit : {};
+		if ( rtc.utils.isVideoStatement(visit) ) {
+			return null;
+		}
+		return this.url;
+	},
+	cardLoaded: function() {
+		//consoleLog('cardLoaded 17');
+		rtc.player.controls.playBtnPause();
+		$('.card17Dialog.ui-dialog').css('background', 'url(' + RTCConfig.baseDir + '/css/images/1-6_final_frame.jpg) 1px 0px');
+		$('.card17Dialog.ui-dialog').css('background-repeat', 'no-repeat');
+	}
+});
+var State2_4 = State.extend({
+	cardIsShowing: function() {
+		return $('#card24Step1:visible').length || $('#card24Step2:visible').length || $('#card24Step3:visible').length;
+	}
+});
+var stateToAdditional = {
+		S_3_3_2 : "implementationProcess",
+		S_4_12 	: "caseStudies",
+		S_4_12a : "caseStudies",
+		S_4_13	: "backgroundToRTC",
+		S_4_14	: "theTechnology",
+		S_4_15	: "pricing",
+		S_4_16 : "continue"
+};
+var StateAdInf = State.extend({
+	nextCard: function(visit){
+		var next = this.nextState;
+		if (visit.additional && -1 != $.inArray(stateToAdditional[next], visit.additional)) {
+			return next;
+		}
+		else {
+			return StateEngine[next].nextCard(visit);
+		}
+	},
+	prevCard: function(visit){
+		visit = visit ? visit : {};
+		var prev = this.prevState;
+		if (visit.additional && -1 != $.inArray(stateToAdditional[prev], visit.additional)) {
+			return prev;
+		}
+		else {
+			return StateEngine[prev].prevCard(visit);
+		}
+	},
+	stateSelectedOnTimeline: function(visit) {
+		if (!visit.additional) {
+			visit.additional = [];
+		}
+		if (stateToAdditional[this.name] && -1 == $.inArray(stateToAdditional[this.name], visit.additional)) {
+			visit.additional.push(stateToAdditional[this.name]);
+		}
+	}
+});
+var State3_3 = StateAdInf.extend({
+	getUrl: function(visit){
+		visit = visit ? visit : {};
+		if ('long' === visit.duration ) {
+			return null;
+		}
+		return this.url;
+	},
+	nextCard: function(visit){
+		if ('long' === visit.duration ) {
+			return this.nextState;
+		}
+		return this._super(visit);
+	},
+	prevCard: function(visit){
+		return this.prevState;
+	}
+});
+var State3_3_2 = StateAdInf.extend({
+	getUrl: function(visit){
+		visit = visit ? visit : {};
+		if ('long' !== visit.duration && !rtc.utils.isVideoStatement(visit)) {
+			return null;
+		}
+		return this.url;
+	},
+	prevCard: function(visit){
+		return this.prevState;
+	}
+});
+var State4_12 = StateAdInf.extend({
+	prevCard: function(visit){
+		if ('long' === visit.duration) {
+			return stateIfPBS('S_3_3_2', 'S_3_3_2');
+		}
+		return this._super(visit);
+	}
+});
+var State4_14 = StateAdInf.extend({
+	nextCard: function(visit){
+		if(rtc.utils.isPBS()) {
+			return this.nextState;
+		}
+		return this._super(visit);
+	}
+});
+var State4_15 = StateAdInf.extend({
+	nextCard: function(visit){
+		return this.nextState;
+	}
+});
+var State4_16 = StateAdInf.extend({
+	nextCard: function(visit){
+		return this.nextState;
+	},
+	stateSelectedOnTimeline: function(visit) {}
+});
+var State4_18 = StateAdInf.extend({
+	nextCard: function(visit){
+		if (visit && visit.contact && 'concerns' === visit.contact) {
+			return 'S_5_2';
+		}
+		return 'S_7_4';
+	}
+});
+var State6_4 = State.extend({
+	nextCard: function(visit){
+		if (visit && visit.contact64 && 'no' === visit.contact64 && 'yes' !== visit.contact) {
+			return 'END';
+		}
+		return 'S_7_4';
+	},
+	prevCard: function(visit){
+		return (visit && visit.contact && 'yes' === visit.contact) ? 'S_4_18' : 'S_5_2';
+	}
+});
+var State7_4 = State.extend({
+	prevCard: function(visit){
+		if (visit && visit.contact && 'concerns' === visit.contact) {
+			return 'S_6_4';
+		}
+		return 'S_4_18';
+	}
+});
+var StateEnd = State.extend({
+	prevCard: function(visit){
+		if (visit && visit.contact64 && 'no' === visit.contact64) {
+			return 'S_6_4';
+		}
+		return 'S_7_4';
+	}
+});
+
+//called from flash
+$.extend( true, rtc.state, {
+	createStateEngine: function() {
+		var stateEngine = {
+			ERROR 	: new State		('ERROR',	'NotFound',null,	null, 		0, 		null),
+			START 	: new State		('START',	null,	'S_1_7',	'START',	0, 		null),
+			S_1_7 	: new State1_7	('S_1_7',	'1-7',	'S_2_4',	'START',	14.15,	null),
+			S_2_4 	: new State2_4	('S_2_4',	'2-4',	'S_3_3',	'S_1_7',	27.06,	null),
+			S_3_3 	: new State3_3	('S_3_3',	'3-3',	stateIfPBS('S_3_3_2', 'S_3_3_2'),	'S_2_4',	43.53,	null),	// service tour
+			S_3_3_2 : new State3_3_2('S_3_3_2',	'3-3',	stateIfPBS('S_4_12', 'S_4_12'),	'S_3_3',	56.94,	'The implementation process'),	// implementation process
+			S_4_12 	: new State4_12 ('S_4_12',	null,	stateIfPBS('S_4_12a', 'S_4_12a'),	stateIfPBS('S_3_3_2', 'S_3_3_2'),	60.52,	'Our case studies'),	// case studies intro
+			S_4_12a : new StateAdInf('S_4_12a',	'4-12a',stateIfPBS('S_4_14', 'S_4_13'),	stateIfPBS('S_4_12', 'S_4_12'),	61.75,	'Our case studies'),	// case studies
+			S_4_13	: new StateAdInf('S_4_13',	null,	'S_4_14',	stateIfPBS('S_4_12', 'S_4_12'),	64.21,	'About Real Time Content'),	// RTC background
+			S_4_14	: new State4_14 ('S_4_14',	null,	stateIfPBS('S_4_16', 'S_4_15'),	stateIfPBS('S_4_12', 'S_4_13'),	valueIfPBS(67.9, 67.9),	'Our technology'),	// technology
+			S_4_15	: new State4_15 ('S_4_15',	null,	'S_4_16',	'S_4_14',	71.59,	'The pricing structure'),	// pricing
+			S_4_16	: new State4_16	('S_4_16',	null,	'S_4_18',	stateIfPBS('S_4_14', 'S_4_15'),	75.28,	null),
+			S_4_18 	: new State4_18 ('S_4_18',	'4-18',	'S_5_2',	'S_4_16',	78.97,	null),
+			S_5_2 	: new State		('S_5_2',	'5-2',	'S_6_4',	'S_4_18',	82.16,	null),
+			S_6_4 	: new State6_4	('S_6_4',	'6-4',	'S_7_4',	'S_5_2',	90.53,	null),
+			S_7_4 	: new State7_4	('S_7_4',	'7-4',	'END',		null,		95.2,	null),
+			END 	: new StateEnd	('END',		'End',	'END',		'S_7_4',	100,	null)
+		};
+		if (rtc.utils.isPBS()) {
+			delete stateEngine.S_4_13;
+			delete stateEngine.S_4_15;
+		}
+		return stateEngine;
+	},
+	startState: function() {
+		var state = 'START';
+		if ( RTCVisit.fromHomepage === 'true' ) {
+			state = StateEngine['S_1_7'] ? 'S_1_7' : 'START';
+		}
+		consoleLog('startState:' + state);
+		rtc.state.set(state, true);
+		return state;
+	}
+} );
+
+
+var StateEngine = rtc.state.createStateEngine();

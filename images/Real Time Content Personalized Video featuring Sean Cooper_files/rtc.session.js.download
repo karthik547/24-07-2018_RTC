@@ -1,0 +1,62 @@
+$.extend( true, rtc, {
+	session: {
+		strings: {
+			preparedFor: "Prepared for",
+			from: "from"
+		},
+		save: function(fn) {
+			if ('true' === RTCVisit.emailChanged || 'true' === RTCVisit.nameChanged) {
+				consoleLog('Creating new session');
+				delete RTCVisit.name;
+				delete RTCVisit.puid;
+				delete RTCVisit.nameChanged;
+				delete RTCVisit.emailChanged;
+			}
+			if ( !RTCVisit.timezone ) {
+				RTCVisit.timezone = jstz.determine_timezone().name() + ( jstz.date_is_dst( new Date() ) ? " DST" : "" );
+				RTCVisit.timezoneOffset = ( new Date() ).getTimezoneOffset() * -60;
+			}
+			var visitStr = JSON.stringify(RTCVisit);
+			$.post(RTCConfig.baseDir + "/api/sessions/" + ( Modernizr.cookies ? '' : 'nocookies/' ) + (RTCVisit.name ? RTCVisit.name : ''), visitStr, function(data) {
+				consoleLog('sessions.name:' + data.name);
+				if (data.name) {
+					RTCVisit.name = data.name;
+				}
+				if (fn) {
+					fn(RTCVisit.name);
+				}
+			} );
+			return visitStr;
+		},
+		copyFieldsFromSessionToEvent: function() {
+			return ['language'];
+		},
+		recordEvent: function(sessionName, eventName, formEl) {
+			consoleLog('rtc.session.recordEvent');
+			var eventData = '';
+			var eventDataStr = '';
+			if (formEl) {
+				eventData = formEl.serializeObject();
+				$.each(rtc.session.copyFieldsFromSessionToEvent(), function(i, field) {
+					if ( RTCVisit[field] ) {
+						eventData[field] = eventData[field] || RTCVisit[field];
+					}
+				});
+				eventDataStr = JSON.stringify(eventData);
+			}
+			if ( !eventName.match( /shown/i ) ) {
+				rtc.utils.analytics.trackEvent( "Action",
+						eventName.replace( /\-/g, " " ).replace( /(^| )([a-z])/gi, function( $0, $1, $2 ) { return $1 + $2.toUpperCase() } ) );
+			}
+			return rtc.session.save(function(sessionName) {
+				$.post(RTCConfig.baseDir + "/api/sessions/" + sessionName + '/' + eventName + '/', eventDataStr, function(data) {
+					consoleLog('recorded session event sessionName:[' + sessionName + '] eventName:[' + eventName + '] ');
+				} );
+			});
+		},
+		setViewerProfile: function(visit) {
+			var text = rtc.utils.viewerProfileText(visit);
+			$('#viewerProfile').html(text);
+		}
+	}
+});

@@ -1,0 +1,568 @@
+var videoParamsToString = function(params) { params = params || [];
+	params = $.isArray(params) ? params : [params];
+	var ret = [];
+	$.each(params, function(i, el) {
+		var item = [];
+		$.each(el, function(k, v) {
+			item.push(k);
+			item.push(v);
+		});
+		ret.push(item.join());
+	});
+// consoleLog(ret);
+	return ret;
+};
+
+var videoRequestString = function(params) {
+
+	params = params ? params : [];
+
+	var paramString = 'a=m';
+	$.each(params, function(i, e) {
+		var letter = 'abcdefghijklmnopqrstuvwxyz'.charAt(i + 1);
+		paramString += '&' + letter + '=' + e;
+	});
+
+	return paramString;
+};
+
+var defaultIfNull = function(value, def) {
+	var ret = value ? value : def;
+	return ret;
+};
+var mapName = function(visit, letter) {
+        letter = letter || 'b';
+	visit = visit ? visit : {};
+	var firstname = visit.fullname ? visit.fullname.toLowerCase().split(/\s+/)[0] : '';
+	firstname = (!(firstname && firstname.length) && visit.firstname) ? visit.firstname.toLowerCase().split(/\s+/)[0] : firstname;
+	firstname = firstname && firstname.length ? firstname : 'there';
+	firstname = rtc.homophones.names[firstname] ? rtc.homophones.names[firstname] : firstname;
+	return defaultIfNull(Infmap[letter][firstname], Infmap[letter].there);
+};
+var mapTimeOfDay = function(date, visit) {
+        visit = visit || {};
+        var maxStateNumber = rtc.utils.stateToNumber(visit.maxState);
+	if (maxStateNumber >= 1007 && (maxStateNumber < 2004 || 'video_statement' == visit.businessNeed)) {
+		return Infmap.b.repeat;
+	}
+	date = date ? date : new Date();
+	var day = date.getDay();
+	var hour = date.getHours();
+	if (6 === day || 0 === day) {
+		return Infmap.b.weekend;
+	}
+	if (hour < 4) {
+		return Infmap.b.night;
+	}
+	if (hour < 12) {
+		return Infmap.b.morning;
+	}
+	if (hour < 18) {
+		return Infmap.b.afternoon;
+	}
+	return Infmap.b.evening;
+};
+var mapHour = function(date) {
+	date = date ? date : new Date();
+	var hour = date.getHours();
+	var hourPadded = ("0" + hour);
+	hourPadded = hourPadded.substr(hourPadded.length - 2);
+	return Infmap.b['d' + hourPadded];
+};
+var mapDayOfWeek = function(date) {
+	date = date ? date : new Date();
+	var day = date.getDay();
+	var days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+	var dayStr = days[day];
+	return Infmap.c[dayStr];
+};
+var mapMonthOfYear = function(date) {
+	date = date ? date : new Date();
+	var m = date.getMonth();
+	var months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+	var monthStr = months[m];
+	return Infmap.d[monthStr];
+};
+var mapDayOfMonth = function(date) {
+	date = date ? date : new Date();
+	var d = date.getDate();
+	var padded = ("0" + d);
+	padded = padded.substr(padded.length - 2);
+	return Infmap.b['d'+padded];
+};
+var mapUSState = function(state) {
+	var stateCodesToNames = {
+		AL: 'Alabama',
+		AK: 'Alaska',
+		AZ: 'Arizona',
+		AR: 'Arkansas',
+		CA: 'California',
+		CO: 'Colorado',
+		DE: 'Delaware',
+		DC: 'District of Columbia',
+		FL: 'Florida',
+		GA: 'Georgia',
+		HI: 'Hawaii',
+		ID: 'Idaho',
+		IL: 'Illinois',
+		IN: 'Indiana',
+		IA: 'Iowa',
+		KS: 'Kansas',
+		KY: 'Kentucky',
+		LA: 'Louisiana',
+		ME: 'Maine',
+		MD: 'Maryland',
+		MA: 'Massachusetts',
+		MI: 'Michigan',
+		MN: 'Minnesota',
+		MS: 'Mississippi',
+		MO: 'Missouri',
+		MT: 'Montana',
+		NE: 'Nebraska',
+		NV: 'Nevada',
+		NH: 'New Hampshire',
+		NJ: 'New Jersey',
+		NM: 'New Mexico',
+		NY: 'New York',
+		NC: 'North Carolina',
+		ND: 'North Dakota',
+		OH: 'Ohio',
+		OK: 'Oklahoma',
+		OR: 'Oregon',
+		PA: 'Pennsylvania',
+		RI: 'Rhode Island',
+		SC: 'South Carolina',
+		SD: 'South Dakota',
+		TN: 'Tennessee',
+		TX: 'Texas',
+		UT: 'Utah',
+		VT: 'Vermont',
+		VA: 'Virginia',
+		WA: 'Washington',
+		WV: 'West Virginia',
+		WI: 'Wisconsin',
+		WY: 'Wyoming'
+	};
+	return stateCodesToNames[state];
+};
+var mapNonUSWeatherLocation = function(cntrycode, zip) {
+	return 'GB' === cntrycode ? 'Across_the_UK' : 'Worldwide';
+};
+var mapWeatherLocation = function(visit, overlayData) {
+	visit = visit ? visit : {};
+        letter = 'c';
+	overlayData = overlayData ? overlayData : {};
+	var weatherData = overlayData.weatherData ? overlayData.weatherData : rtc.overlay.weather.weatherDefaults;
+	var location = null;
+	if ('US' === visit.cntrycode) {
+		var weatherLocation = weatherData.region ? weatherData.region : null;
+		location = mapUSState(weatherLocation);
+		location = location ? location : mapUSState(weatherData.state);
+		location = location ? 'In_' + location.replace(/ /g, '_') : null;
+	}
+	else {
+		location = mapNonUSWeatherLocation(visit.cntrycode, visit.zip);
+	}
+
+	var ret = Infmap[letter][location];
+	ret = (!ret && 'US' === visit.cntrycode) ? Infmap[letter].Across_the_USA : ret;
+	return defaultIfNull(ret,Infmap[letter].Worldwide);
+};
+var mapWeather = function(visit) {
+	visit = visit ? visit : {};
+	var weather = visit.weather;
+	var wMap = {
+			// Yahoo mapping
+			'chance_of_snow_showers' : 'Snow',
+			'chance_of_snow' : 'Snow',
+			'snow' : 'Snow',
+			'chance_of_storm' : 'Thunderstorm',
+			'chance_of_rain' : 'Rain',
+			'rain' : 'Rain',
+			'showers' : 'Rain',
+			'clear' : 'Mostly Sunny',
+			'fog' : 'Fog',
+			'partly_sunny' : 'Mostly Sunny',
+			// cold, smoky : Generic
+			'cloudy' : 'Cloudy',
+			'mostly_sunny' : 'Mostly Sunny',
+			'chance_of_showers' : 'Rain',
+			'mostly_cloudy' : 'Cloudy',
+
+			// Google mapping
+			'Mostly Cloudy' : 'Cloudy',
+			'Light snow'	: 'Snow',
+			'Light rain'	: 'Rain',
+			'showers'		: 'Rain',
+			'Overcast'		: 'Cloudy',
+			'Partly Sunny'	: 'Mostly Sunny'
+	};
+	weather = wMap[weather] ? wMap[weather] : weather;
+	weather = -1 != $.inArray(weather, ['Cloudy', 'Fog', 'Mostly Sunny', 'Rain', 'Snow', 'Thunderstorm']) ? weather : 'Generic';
+	weather = weather.replace(/ /, '_');
+	return defaultIfNull(Infmap.b[weather],Infmap.b.Generic);
+};
+var useSpecialIntro = function(visit) {
+    return 'dave' == visit.intro || 'pb_sapphire' == visit.intro || 'pb_universal' == visit.intro || 'pb_piv_internal' == visit.intro || 'pb_piv_external' == visit.intro;
+};
+var mapLeadSource = function(visit, overlaysDisabled) {
+	visit = visit ? visit : {};
+	if(useSpecialIntro(visit)) {
+		return Infmap.c.generic;
+	}
+	if (visit.referral && !overlaysDisabled) {
+		return Infmap.c.mutual_friend;
+	}
+	var leadsource = visit.leadsource ? visit.leadsource.toLowerCase() : '';
+	return defaultIfNull(Infmap.c[leadsource],Infmap.c.generic);
+};
+var mapSection11 = function(visit, config) {
+	visit = visit || {};
+	config = config || {};
+	var prefix = rtc.utils.isPBS(config) ? 'PB_' : 'd';
+	var templateName = prefix + '1_1_1_2';
+	if(useSpecialIntro(visit)) {
+		templateName = templateName + '_Special_Intro';
+	}
+	return Infmap.a[templateName];
+};
+var mapIntro = function(visit) {
+        visit = visit || {};
+	var intro = -1 != $.inArray(visit.intro, ['dave', 'pb_sapphire', 'pb_universal', 'pb_piv_internal', 'pb_piv_external']) ? visit.intro : null;
+        var intro = 'dave' == intro ? 'dave_schwartz' : intro;
+	return intro ? Infmap.d[intro] : null;
+};
+var mapSection21 = function(visit) {
+	visit = visit ? visit : {};
+	var cameFromHomepage = visit.fromHomepage ? 'true' == visit.fromHomepage : false;
+	var ret = cameFromHomepage ? Infmap.a.d2_1_2_3_Homepage_Version : Infmap.a.d2_1_2_3;
+	return ret;
+};
+var mapBusinessNeed = function(visit, letter) {
+	visit = visit ? visit : {};
+        letter = letter || 'b';
+        var defaultNeed = 'video_statement' === visit.opening ? visit.opening : 'sales';
+	var businessNeed = -1 != $.inArray(visit.businessNeed, ['educate', 'entertain', 'recruit', 'sales', 'service', 'video_statement']) ? visit.businessNeed : defaultNeed;
+	return Infmap[letter][businessNeed];
+};
+var mapBusinessSector = function(visit, letter) {
+	visit = visit ? visit : {};
+        letter = letter || 'c';
+	var businessSector = -1 != $.inArray(visit.businessSector, ['finance', 'health', 'other', 'retail', 'telecoms', 'utility']) ? visit.businessSector : 'other';
+	return Infmap[letter][businessSector];
+};
+var propertyIsEqualBoolean = function(visit, propertyName, required) {
+	return visit && (required === visit[propertyName]);
+};
+var propertyIsEqual = function(visit, propertyName, required) {
+	var ret = propertyIsEqualBoolean(visit, propertyName, required) ? 'true' : 'false';
+	return ret;
+};
+var propertyIsTrueBoolean = function(visit, propertyName) {
+	return visit && ('true' == visit[propertyName] || true === visit[propertyName]);
+};
+var propertyIsTrue = function(visit, propertyName) {
+	var ret = propertyIsTrueBoolean(visit, propertyName) ? 'true' : 'false';
+	return ret;
+};
+var mapIsEDACustomer = function(visit) {
+	return Infmap.c[propertyIsTrue(visit, 'edaCustomer')];
+};
+var mapIsRandallReillyCustomer = function(visit) {
+	return Infmap.d[propertyIsTrue(visit, 'randallReillyCustomer')];
+};
+var mapIsWebExUser = function(visit) {
+	return Infmap.c[propertyIsTrue(visit, 'webexUser')];
+};
+var mapBoolean = function(letter, trueOrFalse) {
+        trueOrFalse = 'false' === trueOrFalse ? false : trueOrFalse;
+	return Infmap[letter][new Boolean(trueOrFalse).toString()];
+};
+var mapOpening = function(visit, letter) {
+    	letter = letter || 'b';
+        visit = visit || {};
+        if (rtc.utils.isVideoStatement(visit)) {
+		    return Infmap[letter].video_statement;
+		}
+        if (rtc.utils.stateToNumber(visit.maxState) >= 2004) {
+	    return Infmap[letter].repeat;
+	}
+	return Infmap[letter].standard;
+};
+var mapIncentive = function(visit, letter) {
+    var incentive = -1 != $.inArray(visit && visit.incentive, ['gift_card', 'gift_card_25', 'gift_generic', 'none', 'special_offer', "pb_incentive1", "pb_incentive2", "pb_incentive3", "pb_incentive4", "pb_incentive5", "pb_incentive6"]) ? visit.incentive : 'none';
+	return Infmap[letter][incentive];
+};
+var mapIncentiveForPricing = function(visit, letter) {
+    var incentive = -1 != $.inArray(visit && visit.incentive, ['gift_card', 'gift_card_25', 'gift_generic', 'none', 'special_offer']) ? visit.incentive : 'none';
+	return Infmap[letter][incentive];
+};
+var mapDuration = function(visit, letter) {
+	var duration = -1 != $.inArray(visit && visit.duration, ['long', 'short']) ? visit.duration : 'short';
+	return Infmap[letter][duration];
+};
+var section31 = function(visit, overlaysDisabled, supportsBackgroundAudio) {
+	visit = visit ? visit : {};
+	if (!visit.greetedByName && Infmap.d.there !== mapName(visit, 'd')) {
+		return {
+			a : Infmap.a.d3_1_Part_1_Name_Version,
+		        b : mapSupportsOverlays('b', overlaysDisabled),
+			c : mapSupportsBackgroundAudio('c', supportsBackgroundAudio),
+			d : mapName(visit, 'd')
+		};
+	}
+	return {
+	    a : Infmap.a.d3_1_Part_1_Standard_Version,
+	    b : mapSupportsOverlays('b', overlaysDisabled),
+	    c : mapSupportsBackgroundAudio('c', supportsBackgroundAudio)
+	};
+};
+var section31Part2 = function() {
+	return Infmap.a.d3_1_Part_2;
+};
+var section31Part3 = function() {
+	return Infmap.a.d3_1_Part_3;
+};
+var section31Part4 = function() {
+	return Infmap.a.d3_1_Part_4;
+};
+var section31Part5 = function() {
+	return Infmap.a.d3_1_Part_5;
+};
+var section31Part6 = function() {
+	return Infmap.a.d3_1_Part_6;
+};
+var section1314 = function(visit, overlaysDisabled) {
+	visit = visit ? visit : {};
+
+	var ret = {
+		a : Infmap.a.d1_3_1_4,
+		b : mapTimeOfDay(new Date(), visit),
+		c : mapLeadSource(visit, overlaysDisabled)
+	};
+	return ret;
+};
+
+var mapIsRemotePresentation = function(visit) {
+	return Infmap.c[propertyIsEqual(visit, 'remotePresentation', 'yes')];
+};
+var mapCaseStudy = function(cs) {
+	cs = -1 != $.inArray(cs, ['eda', 'xbox', 'manu', 'nationwide', 'sonyericsson', 'okuma', 'bidscout', 'fsi', 'rigdig']) ? cs : null;
+	return Infmap.b[cs];
+};
+var mapPricing = function(visit) {
+	return Infmap.c.nonspecific;
+};
+var mapRepresentative = function(visit) {
+	return rtc.utils.isPBS() ? Infmap.b.none : Infmap.b.david_schwartz;
+};
+var mapSection8or9 = function(visit) {
+	visit = visit ? visit : {};
+	var contactRequested = propertyIsEqualBoolean(visit, 'contact', 'yes') || propertyIsEqualBoolean(visit, 'contact64', 'yes') || propertyIsEqualBoolean(visit, 'contact74', 'yes');
+	var ret = contactRequested ? Infmap.a.d8_1_8_3 : Infmap.a.d9_1;
+	return ret;
+};
+var mapConcern = function(concern) {
+	concern = -1 != $.inArray(concern, ['notwatched', 'complicated', 'other', 'salescapacity', 'notneeded', 'singlemessage', 'integration', 'cost', 'facetoface', 'complex', 'results', 'security', 'customerhistory', 'hosting']) ? concern : null;
+	return Infmap.c[concern];
+};
+var mapSupportsBackgroundAudio = function(letter, supportsBackgroundAudio) {
+	return Infmap[letter][String(supportsBackgroundAudio)];
+};
+var mapSupportsOverlays = function(letter, overlaysDisabled) {
+    return mapBoolean(letter, !overlaysDisabled);
+};
+var videoParams = function (stateName) {
+	var videoMap = {
+		START: function() {
+			var name  = mapName(RTCVisit);
+			var overlaysDisabled = rtc.utils.overlaysDisabled();
+			if (Infmap.b.there !== name) {
+				RTCVisit.greetedByName = true;
+			}
+
+		        var s11Template = mapSection11(RTCVisit, RTCConfig);
+			var s11 = {
+				a : s11Template,
+				b : name,
+				c : mapSupportsBackgroundAudio('c', rtc.utils.supportsBackgroundAudio())
+			};
+		        if (useSpecialIntro(RTCVisit)) {
+			    s11.d = mapIntro(RTCVisit);
+			}
+		    
+			var result = [
+			    s11,
+			section1314(RTCVisit, overlaysDisabled)
+			,
+			{
+				a : Infmap.a.d1_5,
+			        b : mapOpening(RTCVisit),
+			        c : mapSupportsOverlays('c', overlaysDisabled)
+			}
+			];
+
+			if ( rtc.utils.isVideoStatementOpening( RTCVisit ) ) {
+				result.push( videoMap.S_1_7() );
+			}
+
+			return result;
+		},
+		S_1_7: function() {
+			var s21 = mapSection21(RTCVisit);
+		    var ret = {
+			a : s21,
+			b : mapBusinessNeed(RTCVisit),
+			c : mapIsWebExUser(RTCVisit),
+			d : mapIncentive(RTCVisit, 'd'),
+			e : mapSupportsOverlays('e', rtc.utils.overlaysDisabled())
+		    };
+		    if (Infmap.a.d2_1_2_3 === s21) {
+		    	ret.f = mapOpening(RTCVisit, 'f');
+		    }
+		    return ret;
+		},
+		S_2_4: function() {
+			var overlaysDisabled = rtc.utils.overlaysDisabled();
+			var s31 = section31(RTCVisit, overlaysDisabled, rtc.utils.supportsBackgroundAudio());
+			RTCVisit.greetedByName = true;
+			var ret = [
+			s31,
+			{
+				a	: section31Part2(overlaysDisabled),
+				b	: mapHour(new Date()),
+				c	: mapDayOfWeek(new Date()),
+				d	: mapMonthOfYear(new Date()),
+				e	: mapSupportsOverlays('e', rtc.utils.overlaysDisabled())		  },
+			{
+				a	: section31Part3(overlaysDisabled),
+				b	: mapDayOfMonth(new Date()),
+				c	: mapWeatherLocation(RTCVisit, RTCOverlayData),
+ 			    d   : mapSupportsOverlays('d', rtc.utils.overlaysDisabled())
+			}, //FIXME implement mapWeatherLocation
+			{
+				a	: section31Part4(overlaysDisabled),
+				b	: mapWeather(RTCVisit),
+ 			    c   : mapSupportsOverlays('c', rtc.utils.overlaysDisabled())
+			},
+			{
+				a	: section31Part5(overlaysDisabled),
+ 			    b   : mapSupportsOverlays('b', overlaysDisabled)
+			},
+			{
+				a	: section31Part6(overlaysDisabled),
+				b	: mapBusinessSector(RTCVisit, 'b'),
+				c	: mapBusinessNeed(RTCVisit, 'c'),
+ 			    d   : mapSupportsOverlays('d', overlaysDisabled)
+			},
+			{
+				a	: Infmap.a.d3_2,
+				b	: mapDuration(RTCVisit, 'b'),
+			    c   : mapBusinessNeed(RTCVisit, 'c')
+			}
+			];
+			return ret;
+		},
+		S_3_3: function() {
+			return [
+			        {
+			        	a: Infmap.a.d4_1_Service_Tour,
+			        	b: mapBusinessNeed(RTCVisit)
+			        },
+			        {
+			        	a: Infmap.a.d4_2,
+			        	b: mapBusinessNeed(RTCVisit)
+			        },
+			        {
+			        	a: Infmap.a.d4_4_4_5,
+			        	b: mapBusinessNeed(RTCVisit)
+			        },
+			        {
+			        	a: Infmap.a.d4_6_4_7,
+			        	b: mapBusinessNeed(RTCVisit),
+				        c: mapIsRemotePresentation(RTCVisit)
+			        },
+			        {
+			        	a: Infmap.a.d4_8_4_10,
+			        	b: mapBusinessNeed(RTCVisit),
+			        	c: mapDuration(RTCVisit, 'c')
+			        }
+			        ];
+		},
+		S_3_3_2: {
+			a : Infmap.a.d4_11_Implementation,
+        	b : mapBusinessNeed(RTCVisit)
+		},
+		S_4_12: {
+			a : Infmap.a.d4_12_Part_1_Case_Studies
+		},
+		S_4_12a: function() {
+			var ret = [];
+			$.each(RTCVisit.casestudy, function(i, cs) {
+				ret.push({
+					a : Infmap.a.d4_12_Part_2,
+					b : mapCaseStudy(cs)
+				});
+			});
+			return ret;
+		},
+		S_4_13: {
+			a : Infmap.a.d4_13_RTC_Background,
+			b : mapDuration(RTCVisit, 'b')
+		},
+		S_4_14: {
+			a : Infmap.a.d4_14_Technology
+		},
+		S_4_15: {
+			a : Infmap.a.d4_15_Pricing,
+			b : mapBusinessNeed(RTCVisit),
+			c : mapPricing(RTCVisit),
+			d : mapIncentiveForPricing(RTCVisit, 'd')
+		},
+		S_4_16: function() {
+			var ret = $.isEmptyObject(RTCVisit.additional) ? Infmap.a.d4_16_4_17 : Infmap.a.d4_17;
+			return {
+				a: ret,
+			        b : mapBusinessNeed(RTCVisit)
+			};
+		},
+		S_4_18: {
+			a : Infmap.a.d5_1
+		},
+		S_5_2: function() {
+			var ret = [];
+			var concerns = RTCVisit.concerns ? RTCVisit.concerns : [];
+			$.each(concerns, function(i, c) {
+				ret.push({
+					a : Infmap.a.d6_2_Convincer,
+					b : mapBusinessNeed(RTCVisit),
+					c : mapConcern(c)
+				});
+			});
+			ret.push({
+				a : Infmap.a.d6_3
+			});
+			return ret;
+		},
+		S_6_4: {
+			a : Infmap.a.d7_1_7_3,
+			b : mapRepresentative(RTCVisit)
+		},
+		S_7_4: {
+			a : mapSection8or9(RTCVisit),
+			b : mapIncentive(RTCVisit, 'b')
+		}
+	};
+
+	var params = videoMap[stateName];
+	if (undefined === params) {
+		consoleLog('WARNING: unknown videoParams for state:[' + stateName + '].');
+		params = [];
+	}
+	if ('function' == typeof params) {
+		params = params();
+	}
+
+	var videoParamsString = videoParamsToString(params);
+	return videoParamsString;
+};

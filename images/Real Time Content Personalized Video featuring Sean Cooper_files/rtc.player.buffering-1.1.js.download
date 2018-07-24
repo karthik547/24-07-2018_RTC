@@ -1,0 +1,573 @@
+window.rtc = window.rtc || {};
+window.rtc.player = window.rtc.player || {};
+$.extend(true, rtc.player, {
+	buffering: {
+		vars: {
+			lastRtcBufferingTime: null,
+			canPlayThrough: false,
+			enableBuffering: {
+				RTC: true,
+				browser: true
+			},
+			mode: { // "active" or "passive"
+				RTC: "active",
+				browser: "active"
+			},
+			browserBuffering: {
+				start: null,
+				end: null,
+				data: null
+			},
+			approxStartTime: 0,
+			lastTimeUpdate: 0,
+			lastTimeUpdateTime: 0,
+			total: 0,
+			count: 0,
+			video: -1,
+			startTime: 0,
+			status: null,
+			pausedToBuffer: false,
+			requiredBufferDuration: 5, // in seconds
+			seekingDirection: 0,
+			bufferingByVideo: [],
+			preloadingRequired: true,
+			initial: true,
+			ignoreTimeupdateTimes: false,
+			showTimeout: null,
+			delayedTimeupdateTimeout: null,
+			downloadingCheck: {
+				timeout: null,
+				previousTimes: { buffered: 0 }
+			},
+			progressCount: 0,
+			disableBandwidthWarning: false
+		},
+		// var functions
+		bufferingEnabled: function( type, playerType ) {
+			if ('flash' === playerType) {
+				return false; // Disable buffering for flash which does it's own.
+			}
+			else {
+				return this.vars.enableBuffering[type];
+			}
+		},
+		bufferingMode: function( bufferingType ) {
+			return this.vars.mode[bufferingType];
+		},
+		options: function( options ) {
+			$.extend( true, this.vars.enableBuffering, options.enableBuffering );
+		},
+		canPlayThrough: function( canPlayThrough ) {
+			if ( typeof canPlayThrough != "undefined" ) {
+				this.vars.canPlayThrough = canPlayThrough;
+			}
+			return this.vars.canPlayThrough;
+		},
+		lastTimeUpdate: function( lastTimeUpdate ) {
+			if ( typeof lastTimeUpdate != "undefined" ) {
+				this.vars.lastTimeUpdate = lastTimeUpdate;
+			}
+			return this.vars.lastTimeUpdate;
+		},
+		lastTimeUpdateTime: function( lastTimeUpdateTime ) {
+			if ( typeof lastTimeUpdateTime != "undefined" ) {
+				this.vars.lastTimeUpdateTime = lastTimeUpdateTime;
+			}
+			return this.vars.lastTimeUpdateTime;
+		},
+		browserBuffering: function( obj ) {
+			if ( typeof obj != "undefined" ) {
+				$.extend( true, this.vars.browserBuffering, obj );
+			}
+			return this.vars.browserBuffering;
+		},
+		isBrowserBuffering: function( obj ) {
+			return this.vars.browserBuffering.start !== null;
+		},
+		previousVideoBuffered: function() {
+			return this.vars.video > 0 && this.vars.bufferingByVideo[this.vars.video-1] > 0;
+		},
+		currentVideoBuffered: function() {
+			this.vars.bufferingByVideo[this.vars.video] = 1;
+		},
+		nextVideo: function() {
+			this.vars.video++;
+			this.vars.bufferingByVideo[this.vars.video] = 0;
+		},
+		lastRtcBufferingTime: function( lastRtcBufferingTime ) {
+			if ( typeof lastRtcBufferingTime != "undefined" ) {
+				this.vars.lastRtcBufferingTime = lastRtcBufferingTime;
+			}
+			return this.vars.lastRtcBufferingTime;
+		},
+		setApproxStartTimeFromPercentage: function( percentage, seekPercent, duration, currentTime ) {
+			try {
+				percentage = Math.min( percentage, seekPercent );
+				this.videoStartTime( null );
+				this.vars.approxStartTime = duration * ( percentage / 100 );
+				this.vars.seekingDirection = this.vars.approxStartTime - currentTime;
+				this.ignoreTimeupdateTimes( true );
+				consoleLog( "seeking from " + currentTime + " to " + this.vars.approxStartTime );
+			} catch ( e ) {
+				consoleLog( e );
+			}
+
+			return this.vars.approxStartTime;
+		},
+		ignoreTimeupdateTimes: function( ignoreTimeupdateTimes ) {
+			if ( typeof ignoreTimeupdateTimes != "undefined" ) {
+				this.vars.ignoreTimeupdateTimes = ignoreTimeupdateTimes;
+			}
+			return this.vars.ignoreTimeupdateTimes;
+		},
+		approxStartTime: function( approxStartTime ) {
+			if ( typeof approxStartTime != "undefined" ) {
+				this.vars.approxStartTime = approxStartTime;
+			}
+			return this.vars.approxStartTime;
+		},
+		status: function( status ) {
+			if ( typeof status != "undefined" ) {
+				this.vars.status = status;
+			}
+			return this.vars.status;
+		},
+		disableBandwidthWarning: function( disableBandwidthWarning ) {
+			if ( typeof disableBandwidthWarning != "undefined" ) {
+				this.vars.disableBandwidthWarning = disableBandwidthWarning;
+			}
+
+			return this.vars.disableBandwidthWarning;
+		},
+		requiredBufferDuration: function( requiredBufferDuration ) {
+			if ( typeof requiredBufferDuration != "undefined" ) {
+				this.vars.requiredBufferDuration = requiredBufferDuration;
+			}
+			return this.vars.requiredBufferDuration;
+		},
+		pausedToBuffer: function( pausedToBuffer ) {
+			if ( typeof pausedToBuffer != "undefined" ) {
+				this.vars.pausedToBuffer = pausedToBuffer;
+			}
+			return this.vars.pausedToBuffer;
+		},
+		preloadingRequired: function( preloadingRequired ) {
+			if ( typeof preloadingRequired != "undefined" ) {
+				this.vars.preloadingRequired = preloadingRequired;
+			}
+			return this.vars.preloadingRequired;
+		},
+		initialBuffer: function( initial ) {
+			if ( typeof initial != "undefined" ) {
+				this.vars.initial = initial;
+			}
+			return this.vars.initial;
+		},
+		bufferingCounts: {
+			section: function( section ) {
+				if ( typeof section != "undefined" ) {
+					rtc.player.buffering.vars.count = section;
+				}
+				return rtc.player.buffering.vars.count;
+			},
+			total: function( total ) {
+				if ( typeof total != "undefined" ) {
+					rtc.player.buffering.vars.total = total;
+				}
+				return rtc.player.buffering.vars.total;
+			},
+			increase: function() {
+				rtc.player.buffering.vars.count++;
+				rtc.player.buffering.vars.total++;
+			}
+		},
+		videoStartTime: function( startTime ) {
+			if ( typeof startTime != "undefined" ) {
+				this.vars.startTime = startTime;
+			}
+			return this.vars.startTime;
+		},
+		//
+		icon: {
+			showing: true,
+			hide: function( immediate ) {
+				if (this.showing) {
+					rtc.player.buffering.hideBufferingIcon( immediate );
+				}
+			}
+		},
+		//
+		browserBufferingStart: function( times, additionalData ) {
+			if ( !this.isBrowserBuffering() && rtc.player.playerStatus.playing && !this.canPlayThrough() ) {
+				if ( this.videoStartTime() !== null && times.play > this.videoStartTime() ) { // don't trigger before the video has started (either start of the video or the seek start position)
+					this.browserBuffering( {
+						start: (new Date()).getTime(),
+						data: $.extend( { start: { datetime: new Date(), time: times.play, lastTimeUpdate: this.lastTimeUpdate(), buffered: ( times.buffered - times.play ) } }, additionalData )
+					} );
+					this.startBuffering( times, "browser buffering", 1000 );
+					consoleLog("browserBufferingStart");
+
+					return true;
+				}
+			}
+
+			return false;
+		},
+		browserBufferingEnd: function( times ) {
+			var time = (new Date()).getTime();
+			var delay = time - this.browserBuffering().start;
+			this.browserBuffering( { data: { end: { datetime: new Date(), delay: delay, buffered: ( times.buffered - times.play ) } } } );
+			rtc.utils.track( "browserBuffering", { data: JSON.stringify( this.browserBuffering().data ) } );
+			this.browserBuffering( { start: null, end: null, data: null } );
+			this.hideBufferingIcon();
+			this.status( "playing" );
+			if ( delay > 1000 ) {
+				this.bufferingCounts.increase();
+				this.initialBuffer(false);
+				this.showBandwidthWarningIfCount( "browser" );
+			}
+			rtc.player.playerStatus.set( "playing" );
+			consoleLog("browserBufferingEnd " + delay);
+		},
+		clearPlayStatusTimeout: function()
+		{
+			clearTimeout( this.vars.delayedTimeupdateTimeout );
+		},
+		checkPlayStatusTimeoutFnc: function() {
+			var times = rtc.player.getVideoTimes(); // must get from rtc.player due to be inside a timeout
+			if ( rtc.player.playerStatus.playing && this.detected( "timeout", times ) != "buffering" ) {
+				this.browserBufferingStart( times, { timeout: "exceeded" } );
+			}
+		},
+		checkPlayStatusTimeout: function( delay, force )
+		{
+			this.clearPlayStatusTimeout();
+			if ( this.bufferingEnabled( "browser", rtc.player.playerType() ) && this.videoStartTime() !== null && this.status() !== "buffering" ) { // only start the timeout if we're not seeking or already buffering
+				this.vars.delayedTimeupdateTimeout = setTimeout( function() {
+					rtc.player.buffering.checkPlayStatusTimeoutFnc();
+				}, delay || 500 );
+			}
+		},
+		seekingComplete: function( times ) {
+			this.videoStartTime( times.play );
+			consoleLog("startTime set to " + times.play);
+			if ( this.detected( "seeked", times ) != "buffering" && this.canResume( times, true ) ) { // check to see if buffering is required
+				this.hideBufferingIcon( false );
+			}
+			rtc.player.playerStatus.seeking( false );
+			return this.status();
+		},
+		bufferingRequired: function( times, threshold ) {
+			if ( !this.bufferingEnabled( "RTC", rtc.player.playerType() ) ) { // RTC buffering is disabled so buffering is not required
+				return false;
+			}
+			threshold = threshold || 2;
+			return this.videoStartTime() !== null && times.play >= this.videoStartTime() && ( times.play + threshold > times.buffered || times.play < times.bufferedStart ) && ( times.bufferedPercentage < 100 || !this.canPlayThrough() );
+		},
+		preload: function( times ) {
+			if ( !this.preloadingRequired() ) {
+				return false;
+			}
+			this.preloadingRequired( false );
+			return this.startBuffering( times, "preload" );
+		},
+		reset: function() {
+			this.initialBuffer( true );
+			this.canPlayThrough( false );
+			this.preloadingRequired( true );
+			this.lastRtcBufferingTime( null );
+			this.bufferingCounts.section( 0 );
+			this.videoStartTime( 0 );
+			this.approxStartTime( 0 );
+			this.nextVideo();
+			this.pausedToBuffer( false );
+			this.ignoreTimeupdateTimes( false );
+			if ( this.status() == "buffering" ) {
+				$( "#buffering_icon" ).hide();
+			}
+			this.status( null );
+		},
+		showBufferingIcon: function( delay ) {
+			delay = delay || 0;
+			clearTimeout( this.vars.showTimeout );
+			if ( delay > 0 ) {
+				this.vars.showTimeout = setTimeout( function() {
+					rtc.player.buffering.showBufferingIcon();
+				}, delay );
+			}
+			else {
+				$( "#buffering_icon" ).stop().show().animate( { opacity: 0.5 }, 500 );
+			}
+			this.icon.showing = true;
+		},
+		hideBufferingIcon: function( immediate ) {
+			var iconEl = $( "#buffering_icon" );
+			clearTimeout( this.vars.showTimeout );
+			if ( immediate ) {
+				iconEl.hide();
+			}
+			else {
+				if ( rtc.player.video && rtc.player.video.isFlashActive() && !rtc.player.flash.buffer.full ) {
+					return;
+				}
+
+				iconEl.animate( { opacity: 0 }, 500, function() {
+					if ( rtc.player.buffering.status() != "buffering" ) {
+						$( this ).hide();
+					}
+				} );
+			}
+			this.pausedToBuffer( false );
+			this.icon.showing = false;
+			rtc.loadSequence.progress( rtc.loadSequence.steps.bufferingComplete );
+		},
+		showBandwidthWarningIfCount: function( bufferingType ) {
+			if ( !this.initialBuffer() && !rtc.player.buffering.bandwidthWarningContinue() && ( this.bufferingCounts.section() >= 3 || this.previousVideoBuffered() ) ) {
+				consoleLog( "showBandwidthWarning - " + bufferingType );
+				this.showBandwidthWarning( bufferingType );
+			}
+		},
+		showBandwidthWarning: function( bufferingType ) {
+			if ( $.rtcCardVars.interfaceCardShowing === null && !rtc.player.buffering.disableBandwidthWarning() ) {
+				if ( this.bufferingMode( bufferingType ) == "active" ) {
+					rtc.card.showCardByName("bandwidthWarning",rtc.player.controls.pause);
+				}
+				rtc.utils.track( 'bandwidthWarning', { data: "bufferingType=" + bufferingType } );
+			}
+		},
+		bandwidthWarningContinue: function(bandwidthWarningContinue) {
+			if ( typeof bandwidthWarningContinue != "undefined" ) {
+				consoleLog('bandwidthWarningContinue');
+				rtc.utils.track('bandwidthWarningContinueBtn');
+				rtc.player.controls.resume();
+				rtc.player.buffering.resume( true );
+				rtc.utils.vars.bandwidthWarningContinue = bandwidthWarningContinue;
+			}
+
+			return rtc.utils.vars.bandwidthWarningContinue;
+		},
+		checkBufferingProgressWhilePaused: function( times ) {
+			if ( this.vars.progressCount > 0 && this.vars.downloadingCheck.timeout === null && this.bufferingEnabled( "RTC", rtc.player.playerType() ) ) { //
+				this.vars.downloadingCheck.previousTimes = times;
+				this.vars.downloadingCheck.timeout = setTimeout( function() {
+					if ( rtc.player.getVideoTimes().buffered == rtc.player.buffering.vars.downloadingCheck.previousTimes.buffered && rtc.player.buffering.status() == "buffering" ) {
+						rtc.player.controls.resume();
+						rtc.player.buffering.resume( true );
+						rtc.loadSequence.progress( rtc.loadSequence.steps.playing );
+						rtc.loadSequence.progress( rtc.loadSequence.steps.bufferingComplete );
+						// disable RTC buffering because it doesn't appear that the video player allows buffering while paused
+						rtc.player.buffering.vars.enableBuffering.RTC = false;
+					}
+				}, 2000 );
+			}
+		},
+		clearBufferingProgressWhilePausedTimeout: function( times ) {
+			clearTimeout( this.vars.downloadingCheck.timeout );
+			this.vars.downloadingCheck.timeout = null;
+		},
+		startBuffering: function( times, reason, showBufferingIconTimeout ) {
+			if ( this.status() == "buffering" || !this.bufferingEnabled( "RTC", rtc.player.playerType() ) ) { // already buffering or RTC buffering is disabled
+				return false;
+			}
+			this.clearPlayStatusTimeout();
+			if ( this.videoStartTime() === null || times.play < this.videoStartTime() + 1 || this.isBrowserBuffering() ) {
+				this.initialBuffer( true );
+				rtc.utils.track("buffering.initial",{filename:rtc.player.getVideoFilename(),reason:reason,times:times});
+			}
+			else {
+				this.initialBuffer( false );
+				this.bufferingCounts.increase();
+				this.currentVideoBuffered();
+				rtc.utils.track("buffering",{filename:rtc.player.getVideoFilename(),reason:reason,times:times});
+				consoleLog( "buffering (" + reason + ")..." );
+			}
+			this.requiredBufferDuration( this.bufferingCounts.total() > 1 ? 10 : 5 );
+			this.status( "buffering" );
+			if ( this.bufferingMode( this.isBrowserBuffering() ? "browser" : "RTC" ) == "active" ) {
+				this.showBufferingIcon(showBufferingIconTimeout);// FIXME add timeout
+				this.ignoreTimeupdateTimes( true );
+				if ( !this.isBrowserBuffering() ) {
+					this.lastRtcBufferingTime( times.play );
+					this.pausedToBuffer( true );
+					this.showBandwidthWarningIfCount( "RTC" );
+					rtc.player.video("pause");
+					this.clearBufferingProgressWhilePausedTimeout();
+					this.checkBufferingProgressWhilePaused(times);
+				}
+				// no need to pause the video because the player has done that for us but we must still pause the audio player
+				rtc.player.audio("pause");
+				rtc.player.events.playingInterval.clear();
+				rtc.player.playerStatus.set('buffering');
+			}
+			consoleLog( "count = " + this.bufferingCounts.section() + " total = " + this.bufferingCounts.total() + " (playhead: " + times.play + " vs buffered: " + times.buffered + ") " + reason );
+			return true;
+		},
+		detected: function( reason, times ) {
+			if ( this.canPlayThrough() && this.bufferingMode( "browser" ) == "active" ) {
+				if ( this.status() == "buffering" ) {
+					this.progress( times );
+				}
+				return this.status();
+			}
+
+			// compare buffered percentage against play percentage
+			if ( this.status() != "buffering" && ( this.bufferingRequired( times ) || this.isBrowserBuffering() ) ) {
+				this.startBuffering( times, reason );
+			}
+
+			return this.status();
+		},
+		resume: function( force ) {
+			if ( force || ( !rtc.card.isCardVisible( "bandwidthWarning" ) && !this.isBrowserBuffering() && ( rtc.player.video.isHtmlActive() || rtc.player.buffering.canResume( rtc.player.getVideoTimes(), true ) ) ) ) {
+				this.hideBufferingIcon( force );
+				this.status( "playing" );
+			}
+		},
+		_updateProgress: function( p ) {
+			var timelineWidth = $('#timeline').width();
+			var bufferedWidth = Math.round(timelineWidth * p / 100);
+			$( "#buffering-progress-buffered" ).width( bufferedWidth );
+			$( "#buffering-progress-unbuffered" ).width( timelineWidth - bufferedWidth );
+		},
+		updateProgress: function( p ) {
+			if ( typeof p == "undefined" ) {
+				p = $( "#buffering-progress-buffered" ).data( "percent" );
+			}
+
+			$( "#buffering-progress-buffered" ).data( "percent", p );
+
+			return this._updateProgress( p );
+		},
+		updateProgressToMarkerPosition: function() {
+			this.updateProgress( StateEngine[RTCVisit.currentState].timelineStartPos );
+		},
+		canResume: function( times, alwaysCheck ) {
+			if ( !alwaysCheck && !this.bufferingEnabled( "RTC", rtc.player.playerType() ) ) { // RTC buffering is disabled so we need to resume immediately
+				return true;
+			}
+			return ( times.buffered >= times.play + this.requiredBufferDuration() && times.play >= times.bufferedStart ) || times.bufferedPercentage == 100 || this.canPlayThrough();
+		},
+		progress: function( times ) {
+			var s = StateEngine[RTCVisit.currentState].timelineStartPos;
+			var w = ( StateEngine[RTCVisit.currentState].getNextState( RTCVisit ) ? StateEngine[StateEngine[RTCVisit.currentState].getNextState( RTCVisit )].timelineStartPos : 100 ) - s;
+			var p = s + Math.min( w, ( ( w * times.bufferedPercentage ) / 100 ) );
+			this.updateProgress( p );
+
+			if ( this.vars.progressCount++ == 0 && this.status() == "buffering" ) { // this is the first progress event and we are buffering
+				this.checkBufferingProgressWhilePaused( times );
+			}
+			else {
+				this.clearBufferingProgressWhilePausedTimeout();
+			}
+
+			if ( times.bufferedPercentage > 99 ) {
+				this.canPlayThrough( true );
+			}
+
+			if ( this.preloadingRequired() && this.bufferingRequired( times, 5 ) && times.bufferedPercentage > 0 ) {
+				this.preload( rtc.player.getVideoTimes() );
+			}
+			else if ( this.status() == "buffering" ) {
+				if ( this.canResume( times )  ) {
+					if ( $( "#playpause" ).hasClass( "paused" ) && ( !this.initialBuffer() || this.isBrowserBuffering() || rtc.card.isCardVisible() ) ) {
+						this.resume( true );
+					}
+					else if ( !this.isBrowserBuffering() && this.bufferingEnabled( "RTC", rtc.player.playerType() )) {
+						rtc.player.controls.resume();
+					}
+				}
+			}
+			else if ( this.bufferingRequired( times ) && times.bufferedPercentage > 0 ) {
+				this.detected( "download progress", times );
+			}
+			else {
+				this.initialBuffer( false );
+			}
+			return this.status();
+		},
+		hasTimeupdateSettledDown: function( time, t ) {
+			var timeUpdateDelta = Math.abs( t - this.lastTimeUpdate() );
+			return timeUpdateDelta < 0.5 && timeUpdateDelta > 0.2 && Math.abs( time - this.lastTimeUpdateTime() ) < 500;
+		},
+		timeupdateTimeProgressingRequired: function() {
+			return rtc.player.playerStatus.playing || rtc.player.playerStatus.name == "buffering";
+		},
+		timeupdateBufferingCheckRequired: function( currentTime, duration ) {
+			return this.videoStartTime() !== null && currentTime > this.videoStartTime() + 1 && currentTime < duration;
+		},
+		timeupdateBrowserBufferingDetected: function( timeDiff, t ) {
+			return this.bufferingEnabled( "browser", rtc.player.playerType() ) && timeDiff >= 0.05 && !this.ignoreTimeupdateTimes() && ( this.lastRtcBufferingTime() === null || t > this.lastRtcBufferingTime() + 1 );
+		},
+		timeupdateBufferingCheck: function( time, currentTime, duration, times ) {
+			if ( this.timeupdateBufferingCheckRequired( currentTime, duration ) ) {
+				// timeDiff is the difference between the calls to this function (timeupdate) and the playhead progress
+				// numbers below 0.01 show that the video is playing without any buffering
+				var playheadDelta = Math.round( ( currentTime - this.lastTimeUpdate() ) * 1000 );
+				var timeDelta = Math.round( time - this.lastTimeUpdateTime() );
+				var timeDiff = Math.round(  timeDelta - playheadDelta ) / 1000;
+
+				if ( this.isBrowserBuffering() ) {
+					if ( timeDiff < 0.05 && this.hasTimeupdateSettledDown( time, currentTime ) || times.bufferedPercentage > 99 ) {
+						this.browserBufferingEnd( times );
+					}
+				}
+				else if ( this.timeupdateBrowserBufferingDetected( timeDiff, currentTime ) || this.bufferingRequired( times ) ) {
+					if ( this.detected( "timeupdate", times ) != "buffering" ) {
+						this.browserBufferingStart(times,{timeDiff:timeDiff});
+					}
+				}
+				else if ( this.ignoreTimeupdateTimes() && !rtc.card.isCardVisible( "bandwidthWarning" ) ) {
+					this.ignoreTimeupdateTimes( false );
+				}
+				else if ( this.icon.showing && ( this.canResume( times, true ) || this.status() != "buffering" ) ) {
+					this.icon.hide();
+				}
+
+				return { timeDiff: timeDiff, playheadDelta: playheadDelta, timeDelta: timeDelta };
+			}
+			else if ( this.icon.showing && this.videoStartTime() !== null && currentTime > 0 && ( this.canResume( times, true ) || this.status() != "buffering" ) ) {
+				this.icon.hide();
+			}
+
+			return {};
+		},
+		timeupdate: function( time, currentTime, bufferedPercentages, duration ) {
+			var times = this.buildTimesObj( currentTime, bufferedPercentages, duration );
+
+			this.clearPlayStatusTimeout();
+
+			// wait for timeupdate events to settle down (i.e. every ~250ms) before re-setting startTime
+			if ( this.videoStartTime() === null ) {
+				var closeToApproxStartTime = currentTime > Math.max( 0, this.approxStartTime() - ( this.vars.seekingDirection > 0 ? 2 : 5 ) ) && currentTime < Math.min( duration, this.approxStartTime() + ( this.vars.seekingDirection > 0 ? 5 : 2 ) );
+				if ( closeToApproxStartTime && this.hasTimeupdateSettledDown( time, currentTime ) ) { // key frame every 60 frames so allow 5 (extra 3 seconds to allow time for the timeupdate to settle down) seconds as the approximation of what the start time will be
+					this.seekingComplete( times );
+				}
+			}
+
+			if ( this.timeupdateTimeProgressingRequired() ) {
+				if ( bufferedPercentages.end > 99 ) {
+					this.canPlayThrough( true );
+				}
+
+				this.timeupdateBufferingCheck( time, currentTime, duration, times );
+
+				this.lastTimeUpdate( currentTime );
+				this.lastTimeUpdateTime( time );
+				this.checkPlayStatusTimeout();
+
+				if ( duration - currentTime < 2 ) {
+					rtc.player.hideIE9FlashWarning();
+				}
+			}
+
+			return this.status();
+		},
+		buildTimesObj: function( currentTime, bufferedPercentages, duration ) {
+			return {
+				play: currentTime,
+				buffered: duration * ( bufferedPercentages.end / 100 ),
+				bufferedStart: duration * ( bufferedPercentages.start / 100 ),
+				bufferedPercentage: bufferedPercentages.end };
+		}
+	}
+});

@@ -1,0 +1,128 @@
+window.rtc = window.rtc || {};
+window.rtc.utils = window.rtc.utils || {};
+$.extend(true, rtc.utils, {
+
+	loadPromoImages: function() {
+		$(rtc.utils.promoImagesSelector).show();
+	    if ('pb_piv_external' == RTCVisit.intro || 'pb_piv_internal' == RTCVisit.intro) {
+		return;
+	    }
+	    if ('pb_sapphire' == RTCVisit.intro) {
+			var image = $('#promo #leadsourceImage');
+			image.css( {height:335,cursor:'pointer'} );
+			image.hover(function(e) {
+				$(this).css({'background-position':'-130px 0px'} );
+			},function(e) {
+				$(this).css({'background-position':'0px 0px'} );
+			} ).click(function(e) {
+				rtc.player.controls.pause();
+				window.open('https://www.passes4b.com/share/passes/551c09539fdd99628c6049c8/551c096b9fdd99628c6049cf');
+			} );
+			rtc.utils.loadImage(image, 'special_intro_pb_sapphire.png');
+			$('#promo #incentiveImage').remove();
+			return;
+		}
+
+		rtc.utils.loadPromoImage('leadsource');
+
+		// If no leadsource supplied default to direct_mailer_email_2.
+		if (!RTCVisit['leadsource'] || 'generic_unknown' == RTCVisit['leadsource'] || rtc.utils.isPBS()) {
+			var image = $('#promo #leadsourceImage');
+			var defaultLeadsourceImageName = 'leadsource_direct_mailer_email_2.png';
+			if ('pbs' == RTCConfig['APPLICATION_NAME']) {
+			    return; // Don't show a logo for organic PBS viewers.
+			}
+			rtc.utils.loadImage(image, defaultLeadsourceImageName);
+		}
+		// Make direct_mailer_email_2 lead source image clickable.
+		if (!RTCVisit['leadsource'] || 'direct_mailer_email_2' === RTCVisit['leadsource']) {
+			$('#promo #leadsourceImage').css('cursor', 'pointer').click(function() {
+				var link;
+				var event;
+
+				if ( rtc.utils.isPBS() ) {
+					link = 'http://www.pitneybowes.com/us/customer-engagement-software.html';
+					event = 'link.thanks-for-visiting';
+				}
+				else {
+					link = 'http://www.realtimecontent.com/portfolio/video-statements/';
+					event = 'link.video-statements';
+				}
+				rtc.utils.track( event, link );
+				rtc.player.controls.pause();
+				window.open(link,'_newtab');
+			});
+		}
+		rtc.utils.loadPromoImage('incentive');
+		rtc.utils.resizePromoImages();
+	},
+
+	resizePromoImages: function() {
+		if (RTCVisit['leadsource'] && !RTCVisit['incentive']) {
+			$('#promo #leadsourceImage').height(335);
+		}
+	},
+
+	lookupFSIData: function(zip) {
+		zip = rtc.utils.truncateExtendedZip(zip);
+		$.get(RTCConfig.baseDir + '/api/fsiData.json?zip=' + zip, function(data) {
+			RTCOverlayData.fsiData = data;
+		});
+	},
+
+	addRandomStats: function(stats) {
+		if (!stats) {
+			return null;
+		}
+		var yearsSinceLaunch = (+(new Date) -+(new Date(2012, 2, 1))) / (365 * 24 * 60 * 60 * 1000);
+		stats.videos_played += Math.floor(85000 * yearsSinceLaunch);
+		stats.meetings_held += Math.floor(30000 * yearsSinceLaunch);
+		stats.meetings_over_thirty_mins += Math.floor(2646 * yearsSinceLaunch);
+		stats.successful_meetings += Math.floor(1325 * yearsSinceLaunch);
+
+		stats.average_meeting_duration_secs += new Date().getDate() - 16;
+		return stats;
+	},
+
+	lookupStats: function() {
+		$.get( RTCConfig.baseDir + '/api/overlay/lateststats.json', function(data) {
+			data = rtc.utils.addRandomStats(data); // update stats while we're not actually getting all stats across services.
+			RTCOverlayData.lateststats = data;
+		});
+	},
+
+	incrementVisits: function() {
+		if(!RTCVisit)
+			return null;
+		RTCVisit.visitCount=rtc.utils.getLocal("rtc.visitCount");
+		if(RTCVisit.visitCount!==null)
+		{
+			RTCVisit.visitCount=parseInt(RTCVisit.visitCount)+1;
+		} else {
+			RTCVisit.visitCount=1;
+		}
+		rtc.utils.storeLocal("rtc.visitCount",RTCVisit.visitCount);
+	},
+
+	bigDog: function(visit) {
+		return visit && visit.fleetSize && (-1!==$.inArray(visit.fleetSize, ['200_499', '500']));
+	},
+
+	isVideoStatement: function(visit) {
+		return visit && ('video_statement' === visit.opening || 'video_statement' === visit.businessNeed);
+	},
+
+	isVideoStatementOpening: function(visit) {
+		return visit && 'video_statement' === visit.opening;
+	},
+
+	isPBS: function(config) {
+		config = config ? config : window.RTCConfig;
+		config = config ? config : {};
+		return 'pbs' == config.APPLICATION_NAME;
+	},
+
+	contactButtonPaneText : function() {
+		return rtc.utils.isPBS() ? '<div class="contactCardTollFree">or email <a href="mailto:pbteam@pb.com" target="_blank">pbteam@pb.com</a></div><div><span class="required">*</span> Required Fields</div>' : '<span class="required">*</span> Required Fields';
+	}
+});

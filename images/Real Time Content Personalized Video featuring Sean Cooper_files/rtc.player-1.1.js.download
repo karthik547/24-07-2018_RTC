@@ -1,0 +1,1441 @@
+//Global variables for jplayer to use when setting up html5 audio.
+var globalVolume = 100;
+var globalMute = false;
+
+window.rtc = window.rtc || {};
+
+if ( typeof Object.keys == "undefined" ) {
+	Object.keys = function( obj ) {
+		var keys = [];
+		for ( var key in obj ) {
+			keys.push( key );
+		}
+		return keys;
+	}
+}
+
+var AudioTrack = Class.extend({
+	previousTime: -1,
+	init: function(start,player,src){
+		this.start = parseFloat(start);
+		this.src = src;
+		var filename = unescape( src.replace( /.*\//, "" ) );
+		if ( rtc.overlay.audioTracks && rtc.overlay.audioTracks[filename] ) {
+			this.end = rtc.overlay.audioTracks[filename].duration + this.start;
+		}
+		else if ( player.data("jPlayer").status.src == this.src ) {
+			this.end = player.data("jPlayer").status.duration;
+			if ( this.end > 0 ) {
+				this.end += this.start;
+			}
+		}
+		this.player=player;
+	},
+	update : function(time)
+	{
+		if ( !rtc.utils.backgroundAudioEnabled() ) {
+			return;
+		}
+
+		if ( this.end == 0 && rtc.player.audio.status().src == this.src ) {
+			this.end = rtc.player.audio.status().duration;
+
+			if ( this.end > 0 ) {
+				this.end += this.start;
+			}
+		}
+
+		time=parseFloat(time);
+
+
+		if ( time >= this.start && time <= this.end && this.end > 0 ) {
+			var paused=rtc.player.audio.status().paused;
+			var buffering = rtc.player.buffering.status() == 'buffering';
+			var mainPaused=rtc.player.video.status().paused;
+			var videoPlaying = !mainPaused && !buffering && !rtc.player.playerStatus.seeking() && time != this.previousTime;
+			var currentTime=parseFloat(rtc.player.audio.status().currentTime);
+			var tolerance=1;
+			if ( rtc.player.audio.status().src != this.src ) {
+				consoleLog( "Playing " + this.src );
+				rtc.player.audio( "stop" );
+				rtc.player.audio( "clearMedia" );
+				rtc.player.audio( "setMedia", {mp3: this.src} );
+				paused = true;
+			}
+			if ( paused && videoPlaying )
+			{
+				rtc.utils.track( "AudioTrack::update - audio paused and video playing" );
+				rtc.player.audio("play",time - this.start);
+				rtc.player.video("play");
+			}
+
+			if(!paused)
+			{
+				if(mainPaused)
+				{
+					rtc.player.audio('pause');
+				}
+				if((time < this.start || time > this.end))
+				{
+					rtc.player.audio("stop");
+				} else if(videoPlaying)
+				{
+					var audioSeekPosition = rtc.player.audioDesyncSeekPos(time - this.start, currentTime, tolerance);
+					if(audioSeekPosition != null) {
+						rtc.utils.track( "AudioTrack::update - out of sync" );
+						rtc.player.audio("play", audioSeekPosition);
+						rtc.player.video("play");
+					}
+				}
+			}
+		}
+		else if ( rtc.player.audio.status().src == this.src ) {
+			rtc.player.audio( "pause" );
+		}
+
+		this.previousTime = time;
+	}
+});
+
+window.rtc = window.rtc || {};
+window.rtc.player = window.rtc.player || {};
+$.extend( true, rtc.player, {
+	audioDesyncSeekPos: function( expectedAudioTime, actualAudioTime, tolerance) {
+		if(expectedAudioTime == null || actualAudioTime == null || tolerance == null) {
+			return null;
+		}
+		if(Math.abs(expectedAudioTime - actualAudioTime) < tolerance) {
+			return null;
+		}
+		if((expectedAudioTime - actualAudioTime) > 0 && expectedAudioTime - actualAudioTime < 2 * tolerance) {
+			//If we're only slightly behind, attempt to counteract the lag by jumping slightly ahead.
+			return 1.5 * expectedAudioTime - 0.5 * actualAudioTime;
+		} else {
+			return expectedAudioTime;
+		}
+	},
+	vars: {
+		player1Ready: false,
+		videoDuration: 0,
+		videoTypes: {},
+		videoPlaybackFailed: false,
+		playerType: null,
+		autoPlayTimeouts: [],
+		unloading: false,
+		seekingWhilePaused: false,
+		retriedSameHost: false,
+		useSameHost: false,
+		flashVersion: null,
+		showCaptions: false,
+		eventHandlers: []
+	},
+	addEventHandler: function( event, fnc ) {
+		this.vars.eventHandlers.push( { event: event, fnc: fnc } );
+	},
+	triggerEvent: function( event, data ) {
+		$.each( this.vars.eventHandlers, function( i, eventHandler ) {
+			if ( eventHandler.event == event ) {
+				eventHandler.fnc.call( window, data );
+			}
+		} );
+	},
+	flashVersion: function( flashVersion ) {
+		if ( typeof flashVersion != "undefined" ) {
+			this.vars.flashVersion = flashVersion;
+		}
+		else if ( this.vars.flashVersion === null ) {
+			this.vars.flashVersion = rtc.utils.getFlashVersion();
+		}
+
+		return this.vars.flashVersion;
+	},
+	seekingWhilePaused: function( seekingWhilePaused ) {
+		if ( typeof seekingWhilePaused != "undefined" ) {
+			this.vars.seekingWhilePaused = seekingWhilePaused;
+		}
+
+		return this.vars.seekingWhilePaused;
+	},
+	unloading: function( unloading ) {
+		if ( typeof unloading != "undefined" ) {
+			this.vars.unloading = unloading;
+		}
+		return this.vars.unloading;
+	},
+	player1Ready: function( ready ) {
+		if ( typeof ready != "undefined" ) {
+			this.vars.player1Ready = ready;
+		}
+		return this.vars.player1Ready;
+	},
+	videoDuration: function( videoDuration ) {
+		if ( typeof videoDuration != "undefined" ) {
+			this.vars.videoDuration = videoDuration;
+		}
+		return this.vars.videoDuration;
+	},
+	playerType: function( playerType ) {
+		if ( typeof playerType != "undefined" ) {
+			this.vars.playerType = playerType;
+		}
+		return this.vars.playerType;
+	},
+	removeDomainFromURL: function( url ) {
+		return url.replace( /^https?:\/\/[^\/]+/, "" );
+	},
+	getBufferingOptions: function( options, userAgent ) {
+		options = $.extend( true, {
+			enableBuffering: {}
+		}, options );
+
+		// disable RTC buffering on Windows Phone because the native player doesn't report download progress
+		if ( userAgent.match( /windows phone/i ) ) {
+			options.enableBuffering.RTC = false;
+		}
+
+		if ( userAgent.match( /iphone/i ) ) {
+			options.enableBuffering.RTC = false;
+		}
+
+		// disable RTC buffering on Android 4+ because the native browser player doesn't report download progress
+		var m = userAgent.match( /android ([0-9]+)/i );
+
+		if ( m && m[1] >= 4 ) {
+			options.enableBuffering.RTC = false;
+		}
+
+		m = userAgent.match( /mac os x.+version\/([0-9\.]+).+safari/i );
+
+		if ( m && m[1] >= 8 ) {
+			options.enableBuffering.RTC = false;
+		}
+
+		return options;
+	},
+	init: function( callback, options )
+	{
+		rtc.loadSequence.progress( rtc.loadSequence.steps.playerInitializing );
+
+		rtc.player.buffering.options(
+			rtc.player.getBufferingOptions( options, navigator.userAgent ) );
+
+		( function( readyFn ) {
+			readyFn = readyFn ? readyFn : function() {};
+			if ( rtc.hd ) {
+				rtc.hd.autoVideoSize();
+			}
+			// Flash must take precedence, due to technical inconstistencies between html implementations.
+			var config = rtc.player.getJplayerMediaConfig( navigator.userAgent, rtc.player.flashVersion() );
+			if ( rtc.utils.supportsBackgroundAudio() ) {
+				// only initialise the audio player if the device supports background audio to prevent an issue with Chrome 36 on
+				// Android showing an error card instead of the splash play screen
+				$("#jquery_jplayer_audioplayer").jPlayer({
+					ready: function () {
+						rtc.utils.track("player.audio.ready");
+						if(rtc.player.player1Ready())
+						{
+							rtc.utils.loadVolumeState();
+							readyFn();
+						}
+						else {
+							rtc.player.player1Ready(true);
+						}
+					},
+					wmode:"window", // required by Firefox 3.6 otherwise audio player will never initialise
+					swfPath: config.swfPath,
+					solution: config.solution,
+					supplied: "mp3",
+					autoplay:false,
+					error: function(e) {
+						if ( !rtc.player.unloading() ) {
+							consoleLog('AUDIO ERROR:' + e.jPlayer.error.type);
+							consoleLog(e.jPlayer.error);
+							rtc.player.logJplayerError( "audio", e.jPlayer.error );
+
+							if ( e.jPlayer.error.type == "e_flash_disabled" ) {
+								rtc.utils.backgroundAudioEnabled( false );
+							}
+							else if ( e.jPlayer.error.type == "e_url" ) {
+								var url = rtc.player.audio.status().src;
+
+								if ( String( url ).match( /^http/ ) ) {
+									rtc.player.audio( "setMedia", { mp3: rtc.player.removeDomainFromURL( url ) } );
+								}
+							}
+						}
+					},
+					play: function(e) {
+						rtc.player.events.audio.play();
+					},
+					pause: function(e) {
+						rtc.player.events.audio.pause();
+					},
+					playing: function() {
+						rtc.player.events.audio.playing();
+					}
+				});
+			}
+			else {
+				// audio player not supported so marking player as ready so that the readyFn will be called when the video player initialises
+				rtc.player.player1Ready(true);
+			}
+
+		    $("#jquery_jplayer_videoplayer").jPlayer({
+				ready: function () {
+					if ( rtc.utils.isAndroid() ) {
+						$("video").addClass("hide-video-player");
+					}
+					rtc.utils.track("player.video.ready", 'flashVersion=' + rtc.player.flashVersion());
+					if(rtc.player.player1Ready())
+					{
+						rtc.utils.loadVolumeState();
+						readyFn();
+					}
+					else {
+						rtc.player.player1Ready(true);
+					}
+					$('.jp-cc').on("click", function(){
+						rtc.player.toggleCC();
+					})
+				},
+				progress: function(event) {
+					rtc.player.events.progress( rtc.player.getVideoTimes() );
+					rtc.player.autoPlayStarted();
+				},
+				timeupdate: function(event) {
+					rtc.player.autoPlayStarted( event.jPlayer.status.currentTime > 0 );
+					rtc.player.videoDuration( event.jPlayer.status.duration );
+					rtc.player.events.timeupdate(event.jPlayer.status.currentPercentAbsolute, event.jPlayer.status.currentTime, rtc.player.getVideoPercentages(), event.jPlayer.status.duration);
+				},
+				emptied: function(event) {
+					rtc.utils.track( "player.video.cleared", { data: "ts=" + ( new Date() ).getTime() } );
+				},
+				ended: function(event) {
+					rtc.player.events.ended(event.jPlayer.status.duration, event.jPlayer.status.netStreamInfo);
+				},
+				click: function (event){
+					rtc.utils.track("player.video.click", {data:"jPlayer"});
+					rtc.utils.start();
+				},
+				play: function (event) {
+					$("video").removeClass("hide-video-player").show();
+					rtc.card.hideLoadingIcon();
+					rtc.utils.hideResumeSplash();
+					if ( event.jPlayer.status.duration > 0 ) {
+						rtc.player.videoDuration( event.jPlayer.status.duration );
+					}
+					rtc.player.playerType( event.jPlayer.flash.active ? "flash" : "html" );
+					rtc.player.events.play( rtc.player.getVideoTimes() );
+				},
+                /**
+                 * Handles video playing events
+                 *
+                 * @param {Object} event jPlayer event
+                 */
+                playing: function(event) {
+					rtc.player.autoPlayStarted( true ); // this is the HTML5 video player telling us the video has started playing
+                    rtc.player.events.playing(event);
+                },
+                /**
+                 * Handles video stalled events
+                 *
+                 * @param {Object} event jPlayer event
+                 */
+                stalled: function(event) {
+                    rtc.player.events.stalled(event);
+                },
+                /**
+                 * Handles video waiting events
+                 *
+                 * @param {Object} event jPlayer event
+                 */
+                waiting: function(event) {
+                    rtc.player.events.waiting(event);
+                },
+				pause: function () {
+					rtc.player.events.pause();
+				},
+				seeking: function() {
+					rtc.player.events.seeking();
+				},
+				seeked: function(event) {
+					rtc.player.events.seeked( rtc.player.getVideoTimes() );
+				},
+				canplay: function() {
+					rtc.player.events.canplay();
+				},
+				canplaythrough: function(e) {
+					rtc.player.events.canplaythrough(e.jPlayer.status.networkState);
+				},
+				flashbufferfull: function(e) {
+					rtc.player.events.flashbufferfull(e.jPlayer.status.seekPercent);
+				},
+				flashbufferempty: function(e) {
+					rtc.player.events.flashbufferempty(e.jPlayer.status.seekPercent);
+				},
+				volumechange: function(event) {
+					rtc.player.events.volumechange( event );
+				},
+				swfPath: config.swfPath,
+				solution: config.solution,
+				supplied: config.suppliedVideo, // if m4v is given priority over flv please check patchTimings
+				size: rtc.player.getVideoSize(),
+				cssSelector: {
+					noSolution:""
+				},
+				error: function(e) {
+					if ( !rtc.player.unloading() ) {
+						var errorType = "video";
+						var errorData = { type: "e_unknown" };
+						var additionalErrorData = {};
+						try {
+							errorData = e.jPlayer.error || errorData;
+						}
+						catch ( e ) { }
+						try {
+							var jPlayerData = rtc.player.video().data().jPlayer;
+
+							additionalErrorData.jPlayerData = JSON.stringify( {
+								formats: jPlayerData.formats,
+								solutions: jPlayerData.solutions,
+								src: jPlayerData.status.src
+							} );
+						}
+						catch ( e ) { }
+						consoleLog('VIDEO ERROR:' + errorData.type);
+						consoleLog(errorData);
+						if(errorData.type=="e_no_solution") {
+							rtc.utils.showErrorCard( rtc.utils.getJplayerErrorCard( errorData.type, RTCVisit, rtc.player.vars.videoPlaybackFailed ) );
+							additionalErrorData.flashVersion = rtc.utils.getFlashVersion();
+							rtc.player.clearAutoPlayTimeouts();
+							rtc.player.buffering.hideBufferingIcon();
+						}
+						else if ( errorData.type == "e_url" ) {
+							if ( typeof rtc.player.vars.allVideoTypes == "undefined" ) {
+								rtc.player.vars.allVideoTypes = $.extend( true, {}, rtc.player.vars.videoTypes );
+							}
+							if ( e.jPlayer.flash.active && !rtc.player.vars.retriedSameHost && Object.keys( rtc.player.vars.videoTypes ).length > 1 ) {
+								delete rtc.player.vars.videoTypes[e.jPlayer.status.formatType];
+								rtc.player.vars.videoPlaybackFailed = true;
+								rtc.player.vars.defaultSuppliedVideo = Object.keys( rtc.player.vars.videoTypes ).join( ", " );
+								rtc.player.video( "setMedia", rtc.player.vars.videoTypes );
+								rtc.utils.start();
+								errorType += ".mediaRetry";
+							}
+							else if ( !rtc.player.vars.retriedSameHost ) {
+								rtc.player.vars.retriedSameHost = true;
+								if (!rtc.utils.overlaysDisabled()) {
+									rtc.player.vars.useSameHost = true;
+									rtc.player.vars.videoTypes = $.extend( true, {}, rtc.player.vars.allVideoTypes );
+									$.each( rtc.player.vars.videoTypes, function( i, s ) {
+										rtc.player.vars.videoTypes[i] = rtc.player.removeDomainFromURL( s );
+									} );
+									errorType += ".mediaRetrySameDomain";
+								}
+								else {
+									errorType += ".mediaRetryOverlaysDisabled";
+								}
+								rtc.player.vars.defaultSuppliedVideo = Object.keys( rtc.player.vars.videoTypes ).join( ", " );
+								rtc.player.video( "setMedia", rtc.player.vars.videoTypes );
+								rtc.utils.start();
+							}
+							else {
+								rtc.utils.showErrorCard( rtc.utils.getJplayerErrorCard( errorData.type, RTCVisit ) );
+								additionalErrorData.flashVersion = rtc.utils.getFlashVersion();
+								rtc.player.clearAutoPlayTimeouts();
+								rtc.player.buffering.hideBufferingIcon();
+							}
+						}
+						else if ( errorData.type == "e_no_support" ) {
+							rtc.utils.showErrorCard( rtc.utils.getJplayerErrorCard( errorData.type, RTCVisit ) );
+							additionalErrorData.flashVersion = rtc.utils.getFlashVersion();
+							rtc.player.clearAutoPlayTimeouts();
+							rtc.player.buffering.hideBufferingIcon();
+						}
+						rtc.player.logJplayerError( errorType, errorData, additionalErrorData );
+					}
+				}
+			} );
+		} )( function() {
+			var init = function( id ) {
+				var o = function() {
+					return o.elem.jPlayer.apply( o.elem, arguments );
+				};
+
+				o.id = id;
+				o.elem = $( "#" + id );
+				o.data = o.elem.data( "jPlayer" );
+				o.status = function() { return this.data.status; };
+				o.element = function() {
+					if ( this.data.html.active ) {
+						return this.data.htmlElement;
+					}
+
+					return {
+						video: $( "object", this.data.element ).get( 0 ),
+						poster: $( "img", this.data.element ).get( 0 )
+					};
+				};
+				o.isHtmlActive = function() { return this.data.html.active; };
+				o.isFlashActive = function() { return this.data.flash.active; };
+
+				return o;
+			};
+
+			rtc.player.video = init( "jquery_jplayer_videoplayer" );
+			rtc.player.audio = init( "jquery_jplayer_audioplayer" );
+			rtc.player.both = function( arg1, arg2 ) {
+				this.video( arg1, arg2 );
+				this.audio( arg1, arg2 );
+			};
+
+			rtc.player.controls.addVolumeControls(rtc.player.hasVolumeControl());
+
+			callback();
+
+			rtc.loadSequence.progress( rtc.loadSequence.steps.playerInitialized );
+		} );
+	},
+	// playerStatus keeps track of player status so that if a user skips forward past the buffered video playback can be resumed if the video is automatically paused during buffering
+	playerStatus: {
+		name: null,
+		videoStarted: false,
+		isSeeking: false,
+		seeked: false,
+		playing: false,
+		canplay: function() {
+			if ( this.seeked && name == "canplay" && !this.playing )
+			{
+				rtc.player.controls.resume();
+				this.seeked = false;
+			}
+		},
+		seeking: function( isSeeking ) {
+			if ( typeof isSeeking != "undefined" ) {
+				this.isSeeking = isSeeking;
+			}
+
+			return this.isSeeking;
+		},
+		set: function( name )
+		{
+			this.name = name;
+			// console.log('set:' + name);
+			rtc.player.buffering.clearPlayStatusTimeout();
+			if ( name == "seeked" )
+			{
+				this.seeking( false );
+				this.seeked = true;
+			}
+			else
+			{
+				if ( name == "playing" ) {
+					if ( !rtc.player.video.isFlashActive() ) {
+						this.seeking( false );
+					}
+
+					this.seeked = false;
+					this.playing = true;
+					this.videoStarted = true;
+				}
+				else if ( name == "paused" || name == "buffering" ) {
+					this.playing = false;
+				}
+			}
+		}
+	},
+	getVideoTimes: function() {
+		try {
+			var status = rtc.player.video.status();
+			var buffered = rtc.player.getVideoPercentages();
+
+			return { play: status.currentTime, buffered: status.duration * ( buffered.end / 100 ), bufferedStart: status.duration * ( buffered.start / 100 ), bufferedPercentage: buffered.end, status: status };
+		}
+		catch (e) {}
+
+		return { play: 0, buffered: 0, bufferedStart: 0, bufferedPercentage: 0, status: {} };
+	},
+	hasVolumeControl :  function() {
+		//For iOS and other devices where volume cannot be controlled by player.
+		return !rtc.player.video.status().noVolume;
+	},
+	stopPlayer : function() {
+		if(this.video && this.video.status().src!="") {
+			this.video("stop");
+		}
+		if ( this.audio ) {
+			this.audio("stop");
+		}
+		rtc.utils.exitFullScreen();
+		this.buffering.hideBufferingIcon( true );
+		this.playerStatus.set( "paused" ); // jPlayer does not report 'pause' event following a 'stop' method call on nexus 7, so update playerStatus here.
+		this.buffering.clearPlayStatusTimeout();
+		this.buffering.updateProgress();//ToMarkerPosition();
+	},
+	pause: function() {
+		rtc.player.controls.playBtnPause();
+		$.rtcVideoPlaying = false;
+		rtc.player.playerStatus.set( "paused" );
+	},
+	getVideoFilename: function() {
+		var f = null;
+
+		try {
+			f = rtc.utils.basename( rtc.player.video.status().src );
+		}
+		catch (e){}
+
+		return f;
+	},
+	_videoPercentages: function(buffered, currentTime, duration) {
+		var ret = { start: 0, end: 0 };
+		if ( buffered.length > 0 ) {
+			for ( var i = 0 ; i < buffered.length ; i++ ) {
+				var start = buffered[i].start;
+				var end = buffered[i].end;
+				if ( start <= currentTime ) {
+					ret.start = start;
+				}
+				if ( start <= currentTime + 10 && end >= currentTime ) { // With multiple sections, check if the start time of a later section is within 10 seconds of the current time, then consider that section buffered for the purpose of RTC buffering detection.
+					ret.end = end;
+				}
+			}
+
+			if ( ret.end == 0 ) {
+				for ( i = 0 ; i < buffered.length ; i++ ) {
+					ret.start = buffered[i].start;
+					ret.end = buffered[i].end;
+					if ( ret.start <= currentTime && ret.end >= currentTime ) {
+						break;
+					}
+				}
+			}
+
+			if ( ret.start > currentTime && ret.start < currentTime + 16 ) {
+				ret.start = currentTime;
+			}
+
+			ret.start = Math.floor( ( ret.start / duration ) * 100 );
+			ret.end = ( ret.end / duration ) * 100;
+		}
+		return ret;
+	},
+	getVideoPercentages: function() {
+		var ret = { start: 0, end: 0 };
+		try {
+			if ( rtc.player.video.isFlashActive() ) {
+				ret.end = rtc.player.video.status().seekPercent;
+			}
+			else {
+				var video = rtc.player.video.element().video;
+				var buffered = [];
+				for ( var i = 0 ; i < video.buffered.length ; i++ ) {
+					buffered.push({
+						start: video.buffered.start( i ),
+						end  : video.buffered.end( i )
+					});
+				}
+
+
+				ret = this._videoPercentages(buffered, video.currentTime, video.duration);
+			}
+		} catch (e){}
+
+		return ret;
+	},
+	getVideoSize: function()
+	{
+		if ( rtc.hd ) {
+			return rtc.hd.getVideoSize( true );
+		}
+
+		return {
+			width: 640 + "px",
+			height: 360 + "px",
+			cssClass: "jp-video-360p"
+		};
+	},
+	getCampaignId: function(config, visit)
+	{
+		if ( visit.currentState && typeof StateEngine[visit.currentState].getCampaign != "undefined" ) {
+			return StateEngine[visit.currentState].getCampaign(rtc.utils.language(), config);
+		}
+
+		return config.campaignId;
+	},
+	getCampaignGuid: function(config, visit)
+	{
+		if ( visit.currentState && typeof StateEngine[visit.currentState].getCampaign != "undefined" ) {
+			return StateEngine[visit.currentState].getCampaign(rtc.utils.language(), config);
+		}
+
+		return config['campaignGuid_' + rtc.utils.language()] || config.campaignGuid || null;
+	},
+	contentURL: function(config, visit, bdw)
+	{
+		config = config || {};
+		visit = visit || {};
+		bdw = bdw || 0;
+		var campaignGuid= rtc.player.getCampaignGuid(config, visit);
+		var campaignId= rtc.player.getCampaignId(config, visit);
+		var forceLow = rtc.player.forceLow( navigator.userAgent ) ? '&brate=low' : '';
+		var hd = ( rtc.utils.isHD && rtc.utils.isHD() ) ? '&hd=true' : '';
+		var videoQuality = visit.videoQuality ? '&quality=' + visit.videoQuality : '';
+		var format = "mobile";
+		var forceVidgen = "";
+		var publishDate = rtc.utils.getMediaPublishDate( config, visit, campaignId );
+
+		if(rtc.player.supports("video/mp4; codecs=\"avc1.64001E\"")) {	//If browser supports h264 mp4 using "High" profile encoding
+			format = "mp4";
+		}
+		if (visit.videoFormat) {
+			format = visit.videoFormat;
+		}
+		if ( config.forceVidgen ) {
+			forceVidgen = "&force";
+		}
+
+		var prefix = campaignGuid ? '&' : '?';
+		if (!campaignId && !campaignGuid) {
+			campaignId = '{campaignNotSpecified}';
+		}
+		campaignId = campaignId ? prefix + 'name=' + campaignId : '';
+		campaignGuid = campaignGuid ? '?cid=' + campaignGuid : '';
+		var videoRenderType = config.videoRenderType ? '&renderType=' + config.videoRenderType : '';
+
+		var contentUrl = config.contentUrl || '/defaultContent';
+
+		if ( typeof rtc.utils.getContentUrl != "undefined" ) {
+			contentUrl = rtc.utils.getContentUrl( config, visit );
+		}
+
+		var burnins = rtc.utils.overlaysDisabled() ? '&burnins=true' : '';
+
+		// Enable HLS, if HLS is configured on "config" file and overlays are disabled
+		var hls = ( config.hlsEnabled == true || config.hlsEnabled == "true" ) && rtc.utils.overlaysDisabled() && rtc.player.supports("application/x-mpegURL",true) ? "&hls=true" : "";
+
+		if ( !rtc.utils.supportsBackgroundAudio() && StateEngine[RTCVisit.currentState] && StateEngine[RTCVisit.currentState].getBurninAudioConfig ) {
+			burnins += "&burninaudio=" + StateEngine[RTCVisit.currentState].getBurninAudioConfig();
+		}
+
+		return contentUrl + campaignGuid + campaignId + forceLow + '&bdw=' + bdw + hd + videoQuality + "&fmt=" + format +
+			videoRenderType + publishDate + burnins + hls + forceVidgen;
+	},
+	setContentUrlResponseCallback: function( callback ) {
+		this.contentUrlReponseCallback = callback;
+	},
+	contentUrlReponseCallback: null,
+	handleContentUrlResponse: function( response, vars,  bdw, vrs, contentUrl ) {
+		rtc.player.vars.videoTypes = {};
+		rtc.player.vars.videoPlaybackFailed = false;
+		rtc.player.seekingWhilePaused( false );
+		rtc.utils.vars.videoQuality = response.videoQuality;
+		rtc.utils.vars.totalDuration = response.totalDuration;
+		rtc.utils.vars.videoSize=response.videosize;
+		rtc.utils.vars.videoOverlays=new Array();
+		rtc.player.buffering.reset();
+		if(!(navigator.userAgent.match(/iphone/i) || navigator.userAgent.match(/ipad/i) || navigator.userAgent.match(/ipod/i) || navigator.userAgent.match(/android/i)) && !rtc.utils.overlaysDisabled()) {
+			$(response.audio).each(function(i, a){
+				if ( a.start == 0 || i == 0 ) {
+					rtc.player.audio("setMedia",{mp3: a.url});
+					rtc.player.audio("load");
+				}
+				rtc.utils.vars.videoOverlays.push(new AudioTrack(a.start,rtc.player.audio.elem,a.url));
+			});
+		}
+
+		rtc.player.setVideoMedia( vrs, bdw, contentUrl, response, vars );
+	},
+	setVideoMedia: function( vrs, bdw, contentUrl, response, vars ) {
+		var f = ( function( vrs, bdw, contentUrl, response, vars ) {
+			return function() {
+				var flvVideo = response.video || "";
+				var m4vVideo = response.m4vvideo || response.formats[Object.keys(response.formats)[0]];
+				var videoMd5 = null;
+				var videoMedia = { poster: RTCConfig.baseDir + "/css/images/splash-play.png" };
+				var overlayData = rtc.utils.parseEffects( response.effect );
+
+				if ( rtc.player.vars.useSameHost ) {
+					flvVideo = rtc.player.removeDomainFromURL( flvVideo );
+					m4vVideo = rtc.player.removeDomainFromURL( m4vVideo );
+				}
+
+				if ( flvVideo != "" ) {
+					rtc.player.vars.videoTypes.flv = flvVideo;
+					videoMedia.flv = flvVideo;
+				}
+				if ( m4vVideo != "" ) {
+					rtc.player.vars.videoTypes.m4v = m4vVideo;
+					videoMedia.m4v = m4vVideo;
+				}
+
+				if ( response.md5s ) {
+					videoMd5 = response.md5s[Object.keys(response.md5s)[0]];
+				}
+
+				rtc.player.video("setMedia", videoMedia);
+
+				rtc.utils.logVideoMedia( bdw, videoMd5, rtc.player.getCampaignId(rtc.utils.config, RTCVisit), overlayData, vrs, contentUrl );
+
+				if (rtc.utils.isAndroid() && $('#wrapper_status_image').hasClass('wrapperLoadingImage')) {
+					$('#wrapper_status_image').removeClass('wrapperLoadingImage');
+					$('#wrapper_status_image').addClass('wrapperPlayPoster').click( function() {
+						$('#wrapper_status_image').unbind("click").removeClass('wrapperPlayPoster'); // prevent repeated click events
+						rtc.utils.track("player.video.click", {data:"wrapper (Android)"}); // track as a player click event
+						rtc.utils.start(vars.bufferIconDelay);
+					});
+				}
+				if ( !navigator.userAgent.match( /(iphone|ipad|ipod|android)/i ) ) {
+					// depending on the calculated bandwidth wait at least 1 second before showing low bandwidth warning
+					rtc.player.buffering.checkPlayStatusTimeout( Math.max( 10, rtc.bandwidth > 0 ? Math.max( 1, ( 1 / rtc.bandwidth ) * 280 ) : 5 ) * 1000, true );
+				}
+				if ( navigator.userAgent.match( /(iphone|ipad|ipod|android)/i ) ) {
+					if ( $('#wrapper_status_image').hasClass('wrapperLoadingImage') ) {
+						$('#wrapper_status_image').removeClass('wrapperLoadingImage');
+						$("#video_background").css( "background", "#000" );
+					}
+					rtc.player.buffering.hideBufferingIcon();
+				}
+				if ( !vars.firstPlay || rtc.player.attemptToAutoPlay( navigator.userAgent ) ) {
+					if ( vars.firstPlay ) {
+						rtc.player.checkAutoPlayStatus();
+					}
+					if ( $( ".sideCardDialog:visible" ).length == 0 ) {
+						rtc.utils.start(vars.bufferIconDelay);
+					}
+				}
+				if ( navigator.userAgent.match( /android/i ) ) {
+					$("video").hide();
+				}
+				rtc.utils.updateOverlays(0);
+
+				rtc.player.contentUrlReponseCallback && rtc.player.contentUrlReponseCallback( response, vars,  bdw, vrs, contentUrl );
+			};
+		} )( vrs, bdw, contentUrl, response, vars );
+
+		var delay = rtc.utils.getSetMediaDelay( navigator.userAgent, $( "video" ).length );
+
+		if ( delay == 0 ) {
+			f();
+		}
+		else {
+			setTimeout( f, delay );
+		}
+	},
+	getVideoRequestString: function( state ) {
+		var params = videoParams( state );
+		var vrs = videoRequestString( params );
+
+		if ( rtc.utils.config.hlsEnabled || ( rtc.utils.overlaysDisabled() && typeof rtc.overlay.params === 'function' ) ) {
+			var overlayParams = rtc.overlay.params( RTCVisit.currentState, RTCVisit, RTCOverlayData );
+			if ( overlayParams ) {
+				vrs += "&visit=" + escape( JSON.stringify( overlayParams ) )
+			}
+		}
+
+		return vrs;
+	},
+	playVideo: function(vars, retry) {
+		rtc.player.vars.retriedSameHost = false;
+		retry = typeof retry == "undefined" ? true : retry;
+		rtc.player.both('clearMedia');
+        $('#jquery_jplayer_videoplayer object').width(1).height(1);
+		rtc.overlay.hideAll();
+		var bdw=rtc.utils.getBandwidth();
+		var contentUrl = rtc.player.contentURL(rtc.utils.config, RTCVisit, bdw) + '&nocache=' + new Date().getTime();
+		var currentState = RTCVisit.currentState;
+		rtc.player.buffering.showBufferingIcon(vars.bufferIconDelay);
+		rtc.utils.track( "playvideo", { data: "ts=" + ( new Date() ).getTime() } );
+		rtc.utils.vars.hdLowBandwidthShown = false; // reset to show warning for each section of video.
+		var vrs = rtc.player.getVideoRequestString( vars.state );
+		$.ajax( {
+			url: contentUrl,
+			data: vrs,
+			dataType: 'jsonp',
+			timeout: rtc.utils.overlaysDisabled() ? 60000 : 15000
+		})
+		.done(function(response) {
+			if ( currentState != RTCVisit.currentState ) {
+				return;
+			}
+
+			rtc.player.handleContentUrlResponse( response, vars,  bdw, vrs, contentUrl );
+		})
+		.fail(function( xhr, status, error ) {
+			var trackData = "url=" + contentUrl + '&' + vrs + ",status=" + status + ",error=" + JSON.stringify( error );
+			if( xhr.status == 503) {
+				rtc.utils.showErrorCard( "service-overloaded" );
+				rtc.utils.track( "error.overloaded", trackData );
+			} else if ( retry ) {
+				rtc.utils.track( "content.retry", trackData );
+				setTimeout( function() {
+					rtc.player.playVideo( vars, false );
+				}, 2000 );
+			}
+			else {
+				rtc.utils.showErrorCard( "technical-error" );
+				try {
+					trackData += ",jQueryVersion=" + $.fn.jquery;
+				}
+				catch ( e ) { }
+				rtc.utils.track( "error.content", trackData );
+			}
+		});
+	},
+	checkAutoPlayStatus: function() {
+		this.vars.autoPlayTimeouts = [
+			setTimeout( function() {
+				rtc.player.autoPlayFailed();
+			}, 8000 ),
+			setTimeout( function() {
+				rtc.player.autoPlayFailed();
+			}, 10000 ) ];
+	},
+	autoPlayStarted: function( force ) {
+		if ( force && this.vars.autoPlayTimeouts.length > 0 ) {
+			$.each( this.vars.autoPlayTimeouts, function( i, timeout ) {
+				clearTimeout( timeout );
+			} );
+
+			this.vars.autoPlayTimeouts = [];
+		}
+		else if ( this.vars.autoPlayTimeouts.length == 2 ) {
+			clearTimeout( this.vars.autoPlayTimeouts[0] );
+			if ( rtc.player.getVideoPercentages().end > 0 ) {
+				clearTimeout( this.vars.autoPlayTimeouts[1] );
+				this.vars.autoPlayTimeouts = [];
+			}
+			else {
+				this.vars.autoPlayTimeouts.splice( 0, 1 );
+			}
+		}
+		else if ( this.vars.autoPlayTimeouts.length == 1 && rtc.player.getVideoPercentages().end > 0 ) {
+			clearTimeout( this.vars.autoPlayTimeouts[0] );
+			this.vars.autoPlayTimeouts = [];
+		}
+	},
+	autoPlayFailed: function() {
+		if ( rtc.player.video.isHtmlActive() ) { // ignore the autoplay failure if using flash which should always autoplau
+			var videoPlayer = $( "#jquery_jplayer_videoplayer" );
+			if ( $( "img", videoPlayer ).length > 0 ) {
+				$( "img", videoPlayer ).show();
+			}
+			else {
+				videoPlayer.prepend( $( "<img id='jp_poster_1' style='width:" + videoPlayer.width() + "px;height:" +
+					videoPlayer.height() + "px' src='" + RTCConfig.baseDir + "/css/images/splash-play.png'>" ).click( function() {
+						$( this ).hide();
+						rtc.utils.track("player.video.click", {data:"auto play failed"}); // track as a player click event
+						rtc.utils.start();
+					} ) );
+			}
+			$( "object,video", videoPlayer ).width(1).height(1);
+			rtc.player.buffering.hideBufferingIcon();
+			rtc.player.controls.playBtnPause();
+			rtc.utils.track( "error.video.autoplay", { userAgent: navigator.userAgent, flash: rtc.utils.getFlashVersion() } );
+		}
+		this.clearAutoPlayTimeouts();
+	},
+	clearAutoPlayTimeouts: function() {
+		for ( var i = 0 ; i < this.vars.autoPlayTimeouts.length ; i++ ) {
+			clearTimeout( this.vars.autoPlayTimeouts[i] );
+		}
+		this.vars.autoPlayTimeouts = [];
+	},
+	logJplayerError: function( mediaType, data, additionalData ) {
+		if ( mediaType != "audio" || data.type != "e_url_not_set" ) { // prevent URL not set errors coming from the audio player when pausing/playing if no MP3 file is specified
+			if ( additionalData ) {
+				data = $.extend( true, data, additionalData );
+			}
+			rtc.utils.track( "error.jplayer." + mediaType, data );
+		}
+	},
+	timelineSeek: function( percent ) {
+		rtc.player.events.seeking();
+		return rtc.player.buffering.setApproxStartTimeFromPercentage( percent, this.video.status().seekPercent, this.videoDuration(), this.video.status().currentTime );
+	},
+	isMediaSet: function() {
+		try {
+			return this.video.status().src != "";
+		}
+		catch ( e ) { }
+		return false;
+	},
+	restoreVideoSize: function() {
+		try {
+			var videoElement = rtc.player.video.element().video;
+			if ( videoElement.tagName && $( videoElement ).width() <= 1 ) {
+				var size = { width: $( "#jquery_jplayer_videoplayer" ).width(), height: $( "#jquery_jplayer_videoplayer" ).height() };
+				$( videoElement ).css( size ).attr( size );
+			}
+		}
+		catch ( e ) { }
+	},
+	showIE9FlashWarning: function() {
+		$( "#video_background" ).addClass( "flashWarningMessageIeIV" );
+	},
+	hideIE9FlashWarning: function() {
+		$( "#video_background" ).removeClass( "flashWarningMessageIeIV" );
+	},
+	controls: {
+		playBtnPlay: function() {
+			consoleLog('playing');
+			$('#timelineBar #playpause').removeClass('paused');
+		},
+		playBtnPause: function() {
+			consoleLog('pausing');
+			$('#timelineBar #playpause').addClass('paused');
+			if ( rtc.player && rtc.player.buffering && rtc.player.buffering.clearPlayStatusTimeout ) {
+				rtc.player.buffering.clearPlayStatusTimeout();
+			}
+		},
+		playNext: function( saveFn, bufferIconDelay ) {
+			rtc.utils.track( "playnext" );
+			rtc.utils.showFlashOnAndroid();
+			rtc.card.hideCards();
+			var visitStr = saveFn ? saveFn() : rtc.session.save();
+			rtc.player.playVideo({state:RTCVisit.currentState, bufferIconDelay:bufferIconDelay});
+		},
+		pause: function() {
+			if ( rtc.player.isMediaSet() ) {
+				consoleLog('pause');
+				if ( rtc.player.buffering.status() == "buffering" ) { // video is buffering so is already paused and jPlayer pause event will not be triggered
+					rtc.player.pause();
+				}
+				$('#jquery_jplayer_videoplayer').jPlayer("pause");
+				$('#jquery_jplayer_audioplayer').jPlayer("pause");
+				rtc.utils.showResumeSplash();
+				rtc.player.playerStatus.set("paused");
+				rtc.player.buffering.clearPlayStatusTimeout();
+			}
+		},
+		resume: function() {
+			if ( rtc.player.isMediaSet() ) {
+				consoleLog('resume play');
+				rtc.utils.showFlashOnAndroid();
+				$('#jquery_jplayer_videoplayer').jPlayer("play");
+				rtc.player.buffering.resume();
+			}
+		},
+		rewind: function() {
+			consoleLog('rewind');
+
+			rtc.timeline.skipToState( rtc.player.getVideoTimes().play < 2 ? rtc.state.previous(RTCVisit) : RTCVisit.currentState );
+		},
+		fastForward: function() {
+			consoleLog('fastForward');
+
+			rtc.timeline.skipToState( rtc.state.next( RTCVisit ) );
+		},
+		muteUnmute: function(muteit) {
+			consoleLog('muteUnmute ' + muteit);
+			$('#jquery_jplayer_videoplayer').jPlayer("mute",muteit);
+			$('#jquery_jplayer_audioplayer').jPlayer("mute",muteit);
+			rtc.utils.storeLocal('rtc.muted', muteit);
+		},
+		setMutedState: function(muted) {
+			consoleLog('Muted:' + muted);
+			if (muted) {
+				$('#muteunmute').addClass('muted');
+				globalMute = true;
+			}
+			else {
+				$('#muteunmute').removeClass('muted');
+				globalMute = false;
+			}
+		},
+		determineMuteState: function(val) {
+			if (val < 1) {
+				$('#timelineBar #muteunmute').removeClass('partial').addClass('muted');
+			}
+			else if (val > 80) {
+				$('#timelineBar #muteunmute').removeClass('muted').removeClass('partial');
+			}
+			else {
+				$('#timelineBar #muteunmute').removeClass('muted').addClass('partial');
+			}
+		},
+		addVolumeControls: function(hasVolumeControl) {
+			if(hasVolumeControl!==false)	//A null argument will evaluate to true here.
+			{
+				$('#timelineBar #muteunmute').hover(
+						function() {
+							$('#volumeBar').show();
+						}
+				);
+				$('#timelineBar #muteVolume').mouseleave(
+						function() {
+							$('#volumeBar').hide();
+						}
+				);
+				$('#timelineBar #muteunmute').on('click', function() {
+					if ($(this).hasClass('muted')) {
+						consoleLog('unmuting');
+						$(this).removeClass('muted');
+						rtc.player.controls.muteUnmute(false);
+						rtc.player.controls.determineMuteState($('#volume').slider( "option", "value"));
+						globalMute = false;
+						$("#audio_player").jPlayer("mute", false);
+						rtc.utils.track( "volume.unmute" );
+					}
+					else {
+						consoleLog('muting');
+						$(this).addClass('muted');
+						rtc.player.controls.muteUnmute(true);
+						globalMute = true;
+						$("#audio_player").jPlayer("mute", true);
+						rtc.utils.track( "volume.mute" );
+					}
+				});
+			}
+			else {
+				$('#timelineBar #muteunmute').addClass("nosound");
+			}
+		},
+		setVolume: function(volume) {
+			consoleLog('volume:' + volume);
+			$('#volume').slider('option', 'value', volume);
+			if (!$('#muteunmute').hasClass('muted')) {
+				rtc.player.controls.determineMuteState(volume);
+			}
+			globalVolume = volume/100;
+		},
+		changeVolume: function(volume) {
+			// consoleLog('volume ' + volume);
+			$('#jquery_jplayer_videoplayer').jPlayer("volume",volume/100);
+			$('#jquery_jplayer_audioplayer').jPlayer("volume",volume/100);
+			rtc.utils.storeLocal('rtc.volume', volume);
+		}
+	},
+	documentReady: function() {
+		$( window )
+			.bind( "beforeunload", function() {
+				rtc.player.unloading( true );
+			} )
+			.blur( function()
+			{
+				rtc.player.buffering.clearPlayStatusTimeout();
+				rtc.utils.vars.windowHasFocus = false;
+			} )
+			.focus( function()
+			{
+				rtc.player.buffering.checkPlayStatusTimeout();
+				rtc.utils.vars.windowHasFocus = true;
+			} );
+
+		$('.jp-no-solution .flash_player_dl').on('click', function(){
+			window.open('http://www.adobe.com/go/getflashplayer','_blank');
+		});
+
+		$('.jp-no-solution .help_fail, .jp-playback-failed .help_fail, .jp-technical-error .help_fail').on('click', function(){
+			rtc.utils.track("view.help");
+			rtc.utils.popitup('help.html');
+			return false;
+		});
+
+		$('.jp-no-solution .visit-our-website').on('click', function(){
+			window.open($(this).attr('href'),'_self');
+		});
+
+		rtc.player.buffering.disableBandwidthWarning( !rtc.utils.inlineVideoSupported() );
+	},
+	getCurrentTime: function( player ) {
+		try {
+			return rtc.player[player || "video"].status().currentTime
+		}
+		catch ( e ) {
+		}
+
+		return 0;
+	},
+	removeCaptions: function() {
+		if(!rtc.player.captionTrack || !rtc.player.captionTrack.cues) {
+			return;
+		}
+		while(rtc.player.captionTrack.cues.length > 0) {
+			rtc.player.captionTrack.removeCue(rtc.player.captionTrack.cues[0])
+		}
+	},
+	trackSupported: function() {
+		var playerObj = $("#jquery_jplayer_videoplayer").data().jPlayer;
+		if(!playerObj.html.used) {
+			return false;
+		}
+		if(!playerObj.htmlElement.video.addTextTrack) {
+			return false;
+		}
+		return true;
+	},
+	addNativeCaption: function(text,intime,out) {
+		var video = $("#jquery_jplayer_videoplayer").data().jPlayer.htmlElement.video;
+		if(!rtc.player.captionTrack) {
+			rtc.player.captionTrack = video.addTextTrack("captions", "English Closed Captions");
+		}
+		if(typeof VTTCue == 'function') {
+			rtc.player.captionTrack.addCue(new VTTCue(intime, out, text));
+		} else {
+			rtc.player.captionTrack.addCue(new TextTrackCue(intime, out, text))
+		}
+		consoleLog("Adding caption: " + intime + "," + out + "," + text);
+	},
+	addOverlayCaption: function(text, intime, outtime) {
+		var overlay = {
+				type : "caption",
+				text : text,
+				className : "caption",
+				times : {
+					start: intime,
+					end : outtime
+				},
+				transitions : {
+					start : {
+						type: "fade",
+						speed : 0
+					},
+					end : {
+						type: "fade",
+						speed : 0
+					}
+				},
+				position : {
+					bottom : 20
+				}
+			};
+		rtc.overlays.add(overlay);
+	},
+	toggleCC: function(){
+		if(rtc.player.trackSupported()){
+			var video = $("#jquery_jplayer_videoplayer").data().jPlayer.htmlElement.video;
+			if(video.textTracks[0].mode == "disabled" || video.textTracks[0].mode == "hidden") {
+				video.textTracks[0].mode = "showing";
+			}
+			else {
+				video.textTracks[0].mode = "disabled";
+			}
+		} else {
+			rtc.player.vars.showCaptions = !rtc.player.vars.showCaptions;
+
+			if(rtc.player.vars.showCaptions){
+				$('.overlay-caption.overlay-current').css("display", "block");
+			} else {
+				$('.overlay-caption.overlay-current').css("display", "none");
+			}
+		}
+	},
+	replay: function(){
+		rtc.player.video( "play", 0 );
+	}
+} );
+window.rtc.utils = window.rtc.utils || {};
+$.extend(true, rtc.utils, {
+	config: RTCConfig,
+	vars: {
+		lastpositionevent: null,
+		videoOverlays: null,
+		bandwidthWarningContinue: false,
+		windowHasFocus: true,
+		bandwidthMethod: null,
+		videoLayout: "sq"
+	},
+	logVideoMedia:function(bdw, md5, campaignId, overlays, vrs, contentUrl) {
+		var src = rtc.player.video.status().src;
+		consoleLog('Reporting bandwidth: ' + bdw);
+		if ( !contentUrl.match( /^http/ ) && !!window.location.protocol && !!window.location.host ) {
+			contentUrl = window.location.protocol + "//" + window.location.host + contentUrl;
+		}
+		rtc.utils.track("videoMedia", {
+			ts: ( new Date() ).getTime(),
+			filename:rtc.utils.basename(src),
+			src:src,
+			downloadtime: rtc.utils.vars.downloadEndTime - rtc.utils.vars.downloadStartTime,
+			bytestotal: rtc.utils.vars.videoSize,
+			bdw:Math.round(bdw),
+			md5:md5,
+			campaignId:campaignId,
+			overlays:JSON.stringify(overlays),
+			vrs:vrs,
+			contentUrl:contentUrl + "&" + vrs,
+			bdwMethod:rtc.utils.vars.bandwidthMethod,
+			player: rtc.player.video.isHtmlActive() ? 'html' : 'flash',
+			quality: src.indexOf('/low/') == -1 ? 'high' : 'low'
+		});
+	},
+	start: function(bufferIconDelay) {
+		/*	Use of html5 solution on IE9 requires that this line be jp.jPlayer('play');
+		However, that prevents the iPad from displaying the placeholder frame.
+		The only reasonable solution would be to prioritise flash over html5
+		2012-12-20: Changed from jp.jPlayer('play',0) to jp.jPlayer('play') and removed
+                    the call to this function for the iPad
+		*/
+		rtc.player.video('play');
+		// pause to allow video time to buffer prior to playing
+		//rtc.player.video('pause');
+		rtc.player.buffering.showBufferingIcon(bufferIconDelay);
+		rtc.utils.vars.downloadStartTime=(new Date()).getTime();
+		rtc.utils.track('videostart');
+	},
+	positionUpdate: function(pctpos) {
+		// jPlayer calls this function every 0.25 seconds to update
+		// the latest playback position
+		// Events are sent at 25%, 50% and 75% playback position.
+
+		// We internally track the last position event we logged and only send
+		// when the time reaches the next 25% trigger point.
+		var VIDEO_0  = 'video0';
+		var VIDEO_25 = 'video25';
+		var VIDEO_50 = 'video50';
+		var VIDEO_75 = 'video75';
+
+		var nextevent = 0;
+		if ( pctpos >= 75 )
+		{
+			nextevent = VIDEO_75;
+		}
+		else if ( pctpos >= 50 )
+		{
+			nextevent = VIDEO_50;
+		}
+		else if ( pctpos >= 25 )
+		{
+			nextevent = VIDEO_25;
+		}
+		else if ( pctpos > 0 ) //works to detect that actual TRUE start time of the video.
+		{
+			nextevent = VIDEO_0;
+			rtc.loadSequence.progress( rtc.loadSequence.steps.playing );
+		}
+
+		if ( nextevent != 0 && nextevent != rtc.utils.vars.lastpositionevent )
+		{
+			// we've passed a 25% mark, so send the event and remember that we did
+			rtc.utils.track(nextevent);
+			rtc.utils.vars.lastpositionevent = nextevent;
+		}
+	},
+	updateOverlays: function(time) {
+		var allowedOverlays = rtc.utils.allowOverlays();
+		if (allowedOverlays !== false) {
+			$.each(rtc.utils.vars.videoOverlays,function(index,overlay) {
+				if ( allowedOverlays === true || $.inArray( overlay.name, allowedOverlays ) > -1 ) {
+					overlay.update(time,!rtc.player.video.status().paused);
+				}
+			});
+		}
+	},
+	loadVolumeState: function() {
+		var volume = rtc.utils.getLocal('rtc.volume') ? parseFloat(rtc.utils.getLocal('rtc.volume')) : 80;
+		var muted = ('true' === rtc.utils.getLocal('rtc.muted'));
+		rtc.player.controls.setMutedState(muted);
+		rtc.player.controls.muteUnmute(muted);
+		rtc.player.controls.setVolume(volume);
+		rtc.player.controls.changeVolume(volume);
+		rtc.utils.track( "volume.load", { data: volume + ( muted ? " (muted)" : "" ) } );
+	},
+	exitFullScreen : function() {
+		if(rtc.player.video && rtc.player.video.isHtmlActive() && rtc.player.video.element().video.webkitDisplayingFullscreen)
+		{
+			rtc.player.video.element().video.webkitExitFullScreen();
+		}
+	},
+	getBandwidth : function()
+	{
+		var bdw=0,method=null;//99999;  // if default to high.
+		if(rtc.utils.vars.videoSize && rtc.utils.vars.downloadEndTime && rtc.utils.vars.downloadStartTime && rtc.utils.vars.downloadPercentage)
+		{
+			method = "video";
+			bdw=(rtc.utils.vars.downloadPercentage/100 * rtc.utils.vars.videoSize*8)/(rtc.utils.vars.downloadEndTime-rtc.utils.vars.downloadStartTime);
+		}
+		else if ( rtc.bandwidth ) {
+			method = "image";
+			bdw = rtc.bandwidth;
+		}
+		rtc.utils.vars.bandwidthMethod = method;
+		bdw=(bdw>0)?bdw:0;
+		consoleLog("Bandwidth estimate: " + bdw + ' kbps');
+		return bdw;
+	},
+	getFlashVersion: function()
+	{
+		var getFlashVersionVariable = function( flashObject )
+		{
+	        var version = -1;
+	        try {
+	        	version = flashObject.GetVariable( "$version" );
+        	} catch ( e ) {}
+	        return version
+	    };
+		var shockwaveFlashVersions = [ {
+	    	 name: "ShockwaveFlash.ShockwaveFlash.7",
+	    	 version: function( object ) {
+	    		 return getFlashVersionVariable( object );
+    		 } }, {
+			 name: "ShockwaveFlash.ShockwaveFlash.6",
+			 version: function( object ) {
+				 var version = "6,0,21";
+				 try {
+					 object.AllowScriptAccess = "always";
+					 version = getFlashVersionVariable( object );
+				 }
+				 catch ( e ) {}
+
+				 return version;
+		 	 } }, {
+	 		 name: "ShockwaveFlash.ShockwaveFlash",
+	 		 version: function( object ) {
+	 			 return getFlashVersionVariable( object );
+	 		 } } ];
+
+		if ( navigator.plugins && navigator.plugins.length > 0 )
+		{
+			var mimeType = navigator.mimeTypes["application/x-shockwave-flash"];
+
+			if ( mimeType && mimeType.enabledPlugin && mimeType.enabledPlugin.description )
+			{
+				var descriptionArray = mimeType.enabledPlugin.description.split(/ +/);
+
+			    return descriptionArray[2] + " " + descriptionArray[3];
+			}
+		}
+		else if ( navigator.appVersion.indexOf( "Mac" ) < 0 && window.execScript )
+		{
+		    var h = -1;
+
+		    for ( var i = 0 ; i < shockwaveFlashVersions.length && h == -1 ; i++ )
+		    {
+		    	var flashObject = null;
+
+	            try {
+	            	flashObject = new ActiveXObject( shockwaveFlashVersions[i].name );
+	            }
+	            catch ( e ) {}
+
+		        if ( flashObject !== null )
+		        {
+		        	flashDescription = shockwaveFlashVersions[i].version( flashObject );
+
+		            if ( flashDescription != -1 )
+		            {
+	                    var descriptionArray = flashDescription.split( "," );
+
+	                    return descriptionArray[0].split( " " )[1] + "." + descriptionArray[1] + " r" + descriptionArray[2];
+                    }
+		        }
+		    }
+		}
+
+		try {
+			var ax = new ActiveXObject( "ShockwaveFlash.ShockwaveFlash" );
+			if ( ax ) {
+				try {
+					return ax.getVariable( "$version" ).replace( /[a-z ]+/i, "" ).replace( /,/g, "." );
+				}
+				catch ( e ) {
+					return true;
+				}
+			}
+		}
+		catch ( e ) {
+		}
+
+		return false;
+	}
+});

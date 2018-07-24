@@ -1,0 +1,156 @@
+window.rtc = window.rtc || {};
+window.rtc.hd = window.rtc.hd || {};
+$.extend(true, rtc.hd, {
+
+	vars: {
+		cssFilename: null,
+		eventListeners: [],
+		hdAllowed: true
+	},
+
+	addEventListener: function( fnc, type ) {
+		rtc.hd.vars.eventListeners.push( { fnc: fnc, type: type || true } );
+	},
+
+	triggerEvent: function( type ) {
+		var l = rtc.hd.vars.eventListeners;
+
+		for ( var i = 0 ; i < l.length ; i++ ) {
+			if ( l[i].type === true || l[i].type === type ) {
+				l[i].fnc();
+			}
+		}
+	},
+
+	css: function( cssFilename ) {
+		if ( typeof cssFilename != "undefined" ) {
+			this.vars.cssFilename = arguments;
+		}
+
+		return this.vars.cssFilename;
+	},
+
+	getVideoSize: function( includeCssClass ) {
+		var size = {height:'360px', width:'640px'};
+
+		if ( rtc.utils.isHD() ) {
+			size = {height:'540px', width:'960px'};
+		}
+
+		if ( includeCssClass ) {
+			size.cssClass = $('#jp_container_1').attr( "class" );
+		}
+
+		return size;
+	},
+
+	updateVideoSize: function() {
+		$('#jquery_jplayer_videoplayer, #jp_poster_1, #jp_flash_1').css(rtc.hd.getVideoSize());
+		$("#jquery_jplayer_videoplayer").jPlayer({size:rtc.hd.getVideoSize(true)});
+	},
+
+	detectVideoResize: function( expectedWidth, callback ) {
+		// wait for the CSS changes to be applied by checking the width of the main wrapper
+		var interval = setInterval( function() {
+			if ( $("#wrapper").width() == expectedWidth ) {
+				clearInterval( interval );
+				callback();
+				if ( $( "#timeline .timeline-section" ).length ) {
+					rtc.timeline.render();
+				}
+			}
+		}, 10 );
+	},
+
+	addCss: function( onload ) {
+		rtc.utils.css.add( this.css(), onload, function() { return $( "#timeline" ).css( "background-image" ).match( /hi\-res/ ); } );
+	},
+
+	removeCss: function() {
+		rtc.utils.css.remove( this.css() );
+	},
+
+	expandScreen: function() {
+		rtc.hd.detectVideoResize( 1420, rtc.card.posCard );
+		this.addCss( function() {
+			rtc.player.buffering.updateProgress();
+			rtc.hd.triggerEvent( "expand" );
+		} );
+		$('#jp_container_1').removeClass('jp-video-360p').addClass('jp-video-540p');
+		$('#timelineBar #qualitybtn').removeClass('auto standard').addClass('high');
+		$('#timeline').data("slider").options.max = 1144;
+		rtc.timeline.updateTimelineProgressBar();
+		rtc.utils.vars.videoLayout = 'hq';
+	},
+
+	contractScreen: function() {
+		rtc.hd.detectVideoResize( 1000, rtc.card.posCard );
+		this.removeCss();
+		$('#jp_container_1').removeClass('jp-video-540p').addClass('jp-video-360p');
+		$('#timelineBar #qualitybtn').removeClass('auto high').addClass('standard');
+		$('#timeline').data("slider").options.max = 770;
+		rtc.timeline.updateTimelineProgressBar();
+		rtc.utils.vars.videoLayout = 'sq';
+		rtc.player.buffering.updateProgress();
+		rtc.hd.triggerEvent( "collapse" );
+	},
+
+	hdAllowed: function( hdAllowed ) {
+		if ( typeof hdAllowed != "undefined" ) {
+			rtc.hd.vars.hdAllowed = hdAllowed;
+		}
+		return rtc.hd.vars.hdAllowed && (screen.width >= 1440)&&(screen.height >= 900)&&(Modernizr.csstransforms)&&(Modernizr.backgroundsize);
+	},
+	hdViewport: function() {
+		//alert('width: ' + $(window).width() + '/nheight: ' + $(window).height() );
+		return ($(window).width() >= 1440)&&($(window).height() >= 800);
+	},
+
+	autoVideoSize: function() {
+		//Is browser 1440x900 or larger?
+		//Does the browser support CSS3 2D transforms
+		if (rtc.hd.hdAllowed() && rtc.hd.hdViewport()){
+			//alert ('great, you get the hq version - width: ' + screen.width + ' | height: ' + screen.height + ' | css transforms: ' + Modernizr.csstransforms);
+			$('#timelineBar #qualitybtn').removeClass('auto standard').addClass('high');
+			rtc.hd.expandScreen();
+		} else {
+			//alert ('sorry, no hq version for you - width: ' + screen.width + ' | height: ' + screen.height + ' | css transforms: ' + Modernizr.csstransforms);
+			$('#timelineBar #qualitybtn').removeClass('auto high').addClass('standard');
+			rtc.hd.contractScreen();
+		}
+		rtc.hd.videoSizeAllowed();
+	},
+
+	videoSizeAllowed: function() {
+		//Is browser 1440x900 or larger?
+		//Does the browser support CSS3 2D transforms
+		if (rtc.hd.hdAllowed()){
+			$('#timelineBar #qualityauto').css('display','none');
+			return true;
+		}
+
+		//add disabled to the video quality button.
+		$('#timelineBar #qualitybtn').addClass('disabled');
+		$('#timelineBar #qualityhigh').addClass('disabled');
+		$('#timelineBar #qualityhigh').css('display','none');
+		$('#timelineBar #qualitystandard').css('display','none');
+		$('#timelineBar #qualityauto').css('display','none');
+		return false;
+	},
+
+	showHDlowBandwidthTip: function(force) {
+		if ( (!rtc.utils.vars.hdLowBandwidthShown && rtc.player.playerStatus.playing) || (force && rtc.player.playerStatus.playing) ) {
+			// hide the corporate firewall detected popup before displaying HD low bandwidth popup
+			$('#corporate-firewall-detected').stop().fadeOut(300, function() {
+				$(this).hide();
+			});
+			$('#timelineBar #hd_low_bandwidth').delay(300).fadeIn(500);
+			$('#timelineBar #hd_low_bandwidth').delay(6000).fadeOut(500, function() {
+	    		// Animation complete.
+				$(this).hide();
+		  	});
+			rtc.utils.vars.hdLowBandwidthShown = true;
+		}
+	}
+});
+

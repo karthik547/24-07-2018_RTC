@@ -1,0 +1,107 @@
+/*
+ * All code (c) 2014 Real Time Content, Inc. All rights reserved.
+ */
+window.rtc = window.rtc || {};
+window.rtc.player = window.rtc.player || {};
+
+$.extend( true, rtc.player, {
+	defaultJplayerConfig: function() {
+		return {
+			solution: "flash, html",
+			suppliedVideo: this.vars.defaultSuppliedVideo,
+			swfPath: "/rtc/js/extlibs/Jplayer-h264-streaming.swf"
+		};
+	},
+	vars: {
+		defaultSuppliedVideo: "flv, m4v"
+	},
+	getJplayerMediaConfig: function( userAgent, flashVersion, rtcConfig ) {
+		var config = rtc.player.defaultJplayerConfig();
+		var exceptions = [
+			{ regex: /Mozilla\/5\.0 \(X11; Linux; ko-KR\) AppleWebKit\/\d+\.\d+\+? \(KHTML, like Gecko\) Version\/5\.\d+ Safari\/\d+\.\d+\+?/i, solution: "html", suppliedVideo: "m4v, flv" },
+			{ regex: /OS X.+safari/i, solution: "html, flash" }
+        ];
+
+		for ( var i = 0 ; i < exceptions.length ; i++ ) {
+			if ( ( exceptions[i].regex && userAgent.match( exceptions[i].regex ) ) ||
+				 ( exceptions[i].fnc && exceptions[i].fnc( userAgent ) ) )
+			{
+				config.solution = exceptions[i].solution || config.solution;
+				config.suppliedVideo = exceptions[i].suppliedVideo || config.suppliedVideo;
+				break;
+			}
+		}
+
+		if ( flashVersion === false ) {
+			config.suppliedVideo = "m4v, flv";
+			config.solution = "html, flash";
+		}
+		rtcConfig = rtcConfig || {};
+		if (rtcConfig.contentUrl && rtcConfig.contentUrl.match(/vidgen/)) {
+			config.suppliedVideo = "m4v";
+		}
+
+		if ( typeof RTCVisit != "undefined" ) {
+			config.solution = RTCVisit.videoSolution || config.solution;
+			config.suppliedVideo = RTCVisit.videoSupplied || config.suppliedVideo;
+		}
+
+		return config;
+	},
+	attemptToAutoPlay: function( userAgent ) {
+		var exceptions = [
+			/(ipad|ipod|iphone)/i
+		];
+
+		if ( rtc.player.video && rtc.player.video.isHtmlActive() ) {
+			exceptions.push( /android/i );
+		}
+
+		for ( var i = 0 ; i < exceptions.length ; i++ ) {
+			if ( userAgent.match( exceptions[i] ) ) {
+				rtc.utils && rtc.utils.track && rtc.utils.track( "autoplay.unsupported" );
+				return false;
+			}
+		}
+
+        var safari = userAgent.match(/version\/([0-9]+).+safari/i);
+
+        if (safari && safari[1] >= 11) {
+            return false;
+        }
+
+        var chrome = userAgent.match(/(crios|chrome|chromium)\/([0-9]+)/i);
+
+        if (chrome && !userAgent.match(/edge/) && 66 <= chrome[2]) {
+            return false;
+        }
+
+		return true;
+	},
+	forceLow: function( userAgent ) {
+		return userAgent.match( /iphone/i );
+	},
+	supports: function( mimetype , maybe) {	//mimetype should look like:
+										//	'video/mp4; codecs="avc1.64001E"' - High
+										//	'video/mp4; codecs="avc1.4D401E, mp4a.40.2"' - Main
+										//	'video/mp4; codecs="avc1.42E01E, mp4a.40.2"' - Baseline
+										//  maybe: If true, accept "maybe" to mean it is supported (iOS reports HLS as "maybe" so this is the only way we can detect HLS support.)
+		maybe = maybe || false;
+		try {
+			if(typeof rtc.player.supports.videoElem == "undefined") {
+				rtc.player.supports.videoElem=document.createElement("video");
+			}
+			if(!rtc.player.supports.videoElem.canPlayType) {	//If we don't have HTML5, we will be using a flash player, which should be able to play any format we give it.
+				return true;
+			}
+			return rtc.player.supports.videoElem.canPlayType(mimetype) == "probably" || (maybe && rtc.player.supports.videoElem.canPlayType(mimetype) == "maybe");
+			//canPlayType returns	"probably" => Yes.
+			//                   	"maybe" => To be safe, we'll say no.
+			//                   	"" => No.
+		}
+		catch ( ex ) {
+		}
+
+		return false;
+	}
+} );

@@ -1,0 +1,293 @@
+window.rtc = window.rtc || {};
+$.extend( true, rtc, { mailto: {
+	form: null,
+	mode: "single",
+	options: {
+		lastStepSelector: "#cardshareStep2,#cardshareStep3",
+		sendViaTooltipCSS: {
+			left: 'auto',
+			top: 'auto'
+		},
+		sendDirectlyTooltipCSS: {
+			left: 'auto',
+			top: 'auto',
+			width: '300px'
+		}
+	},
+	getAdditionalShareStr: function() {
+		return [];
+	},
+	init: function( form, sendViaName, getAdditionalShareStr ) {
+		this.form = form;
+		if ( typeof getAdditionalShareStr != "undefined" ) {
+			this.getAdditionalShareStr = getAdditionalShareStr;
+		}
+	},
+	updateVisitDetails: function()
+	{
+		var form = rtc.mailto.form;
+		RTCVisit = rtc.utils.cardReadName(RTCVisit, form.find('input[name=firstname]').length ?
+			[ form.find('input[name=firstname]').val(), form.find('input[name=lastname]').val() ] :
+			form.find('input[name=fullname]').val());
+		RTCVisit = rtc.utils.cardReadEmail(RTCVisit, form.find('input[name=email]').val());
+		RTCVisit.company = form.find('input[name=company]').val();
+		RTCVisit.lastShareMessage = form.find('textarea[name=message], input[name=message]').val();
+	},
+	getFromName: function(form) {
+		if ( form.find( 'input[name=firstname]' ).length) {
+			return $.trim( form.find( 'input[name=firstname]' ).val() + ' ' + form.find( 'input[name=lastname]' ).val() );
+		}
+
+		return $.trim( form.find( 'input[name=fullname]' ).val() );
+	},
+	getTheirName: function(form) {
+		if ( form.find( 'input[name=theirfirstname]' ).length) {
+			return $.trim( form.find( 'input[name=theirfirstname]' ).val() + ' ' + form.find( 'input[name=theirlastname]' ).val() );
+		}
+
+		return $.trim( form.find( 'input[name=theirname]' ).val() );
+	},
+	getTheirFirstName: function(form) {
+		if ( form.find( 'input[name=theirfirstname]' ).length) {
+			return $.trim( form.find( 'input[name=theirfirstname]' ).val() );
+		}
+
+		return $.trim( form.find( 'input[name=theirname]' ).val() ).replace( / .*/, '' );
+	},
+	getStringsForDirectEmail: function() {
+		var form = rtc.mailto.form;
+		var data = {};
+
+		data.theiremail = form.find('input[name=theiremail]').val();
+		data.firstname = rtc.mailto.getTheirFirstName(form);
+		data.fullname = rtc.mailto.getFromName(form);
+		data.message = form.find('textarea[name=message], input[name=message]').val();
+
+		return data;
+	},
+	cardButtons: {
+		sendVia: function()
+		{
+			var form = rtc.mailto.form;
+			rtc.mailto.updateVisitDetails(form);
+
+			form.find('input[name=shareUrl]').remove();
+			form.find('input[name=sharePuid]').remove();
+			form.find('input[name=referrer_session_name]').val(RTCVisit.name);
+			form.find('input[name=campaign]').val(RTCVisit.campaign);
+
+			if ( rtc.mailto.mode == "single" ) {
+				var onSendByRTCURL = function (shareUrl) {
+					$(rtc.mailto.options.lastStepSelector).find('input[name=sharelink]').val(shareUrl);
+					rtc.session.setViewerProfile(RTCVisit);
+					rtc.session.recordEvent(RTCVisit.name, 'share', form);
+				};
+
+				$.ajax({
+				    url: rtc.utils.getBaseUrl() + 'api/shareurl/sendbyrtc',
+				    type: "POST",
+				    timeout: 2000,
+				    data: form.serialize(),
+				    success: function(response) {
+				    	var shareUrl = response.url;
+				    	form.append($("<input type='hidden' name='shareurl' />").val(shareUrl));
+				    	onSendByRTCURL(shareUrl);
+				    },
+				    error: function(x, t, m) { // On timeout or other error use long url.
+						var shareUrl = rtc.utils.shareUrl(rtc.utils.getShareBaseUrl( form.serializeArray() ), form, RTCVisit, rtc.mailto.getAdditionalShareStr());
+						onSendByRTCURL(shareUrl);
+				    }
+				});
+			}
+			else {
+				var onSendByRTCURL = function () {
+					rtc.session.setViewerProfile(RTCVisit);
+					rtc.session.recordEvent(RTCVisit.name, 'share-multiple', form);
+				};
+
+				$.ajax({
+				    url: rtc.utils.getBaseUrl() + 'api/shareurl/sendbyrtc',
+				    type: "POST",
+				    timeout: 2000,
+				    data: form.serialize(),
+				    success: function(response) {
+				    	var urls = [];
+				    	for ( var i = 0 ; i < response.length ; i++ ) {
+				    		urls.push( response[i].email + "\t" + response[i].url );
+				    	}
+				    	$( "#multipleShareResponse textarea" ).val( urls.join( "\n" ) );
+				    	onSendByRTCURL();
+				    },
+				    error: function(x, t, m) { // On timeout or other error use long url.
+						var recipients = $( ".emailFieldsRow" );
+						var urls = [];
+						for ( var i = 0 ; i < recipients.length ; i++ ) {
+							urls.push( recipients.find( "input[name=theiremail\\[\\]]" ).val() + "\t" + rtc.utils.shareUrl(
+								rtc.utils.getShareBaseUrl( rtc.mailto.form.serializeArray() ), recipients, RTCVisit, rtc.mailto.getAdditionalShareStr() ) );
+						}
+						$( "#multipleShareResponse textarea" ).val( urls.join( "\n" ) );
+				    	onSendByRTCURL();
+				    }
+				});
+			}
+		},
+		sendDirectly: function( recordSessionEvent, shareUrl, eventName )
+		{
+			var form = rtc.mailto.form;
+			var mailBody = rtc.strings.get( "mailto", "mailBody" );
+
+			if ( recordSessionEvent !== false ) {
+				rtc.mailto.recordShareMailtoEvent(eventName);
+			}
+
+			mailStrings = rtc.mailto.getStringsForDirectEmail();
+			mailBody = mailBody.replace('{{firstname}}', mailStrings.firstname);
+			mailBody = mailBody.replace('{{fullname}}', mailStrings.fullname);
+
+			if ( typeof mailStrings.message != "undefined" && !!mailStrings.message ) {
+				mailBody = mailBody.replace('{{message}}', mailStrings.message);
+			}
+			else {
+				mailBody = mailBody.replace(/\{\{message\}\}([\r\n]|%0A)+/, "");
+			}
+
+			var mailTo = "mailto:" + mailStrings.theiremail + '?subject=' + rtc.strings.get( "mailto", "mailSubject" );
+			shareUrl = shareUrl || rtc.mailto.getSendDirectlyShareUrl( form );
+			var link = encodeURIComponent(shareUrl);
+
+			mailBody = mailBody.split('{{link}}').join(link); // replace all.
+
+			// Note that we use _blank in case mailto links are handled by gmail or other webmail which causes browser to open in the same tab.
+			window.open(mailTo + '&body=' + mailBody, '_blank');
+
+			$(rtc.mailto.options.lastStepSelector).find('#confirmText').text(rtc.strings.get( "mailto", "ifSendDirectlyFailed" ));
+			$(rtc.mailto.options.lastStepSelector).find('input[name=sharelink]').val(shareUrl);
+		}
+	},
+	recordShareMailtoEvent: function(eventName) {
+		eventName = eventName || 'share-mailto';
+		var form = rtc.mailto.form;
+
+		rtc.mailto.updateVisitDetails(form);
+		rtc.session.setViewerProfile(RTCVisit);
+
+		form.find('input[name=referrer_session_name]').val(RTCVisit.name);
+		form.find('input[name=campaign]').val(RTCVisit.campaign);
+
+		rtc.session.recordEvent(RTCVisit.name, eventName, form);
+	},
+	getSendDirectlyShareUrl: function(form) {
+		var shareUrl = form.find('input[name=shareUrl]').val();
+		var sharePuid = $.trim(form.find('input[name=sharePuid]').val());
+
+		if ('' === sharePuid) {
+			shareUrl = rtc.utils.shareUrl(rtc.utils.getShareBaseUrl( rtc.mailto.form.serializeArray() ), form, RTCVisit, rtc.mailto.getAdditionalShareStr());
+		}
+		else {
+			var longPath = rtc.utils.shareUrl(rtc.utils.getShareBaseUrl( rtc.mailto.form.serializeArray() ), form, RTCVisit, rtc.mailto.getAdditionalShareStr()) + '&path=' + sharePuid;
+			$.post(rtc.utils.getBaseUrl() + 'api/shareurl/' + sharePuid, {longpath: longPath});
+		}
+
+		return shareUrl;
+	},
+	onShareUrl: function(shareUrl, sharePuid, shareLongpath) {
+		rtc.mailto.form.find('input[name=shareUrl]').val(shareUrl);
+		if (sharePuid) {
+			rtc.mailto.form.find('input[name=sharePuid]').val(sharePuid);
+		}
+		if (shareLongpath) {
+			rtc.mailto.form.find('input[name=shareLongpath]').val(shareLongpath);
+		}
+	},
+	updateTheirname: function() {
+		$.ajax({
+		    url: rtc.utils.getBaseUrl() + 'api/shareurl',
+		    type: "POST",
+		    timeout: 2000,
+		    data: {
+		    	theirname: rtc.mailto.getTheirName(rtc.mailto.form),
+		    	baseurl: rtc.utils.getShareBaseUrl( rtc.mailto.form.serializeArray() )
+		    },
+		    success: function(response) {
+		    	rtc.mailto.onShareUrl(response.url, response.path, response.longpath);
+		    },
+		    error: function(x, t, m) { // On timeout or other error use long url.
+				var shareUrl = rtc.utils.shareUrl(rtc.utils.getShareBaseUrl( rtc.mailto.form.serializeArray() ), rtc.mailto.form, RTCVisit, rtc.mailto.getAdditionalShareStr());
+				rtc.mailto.onShareUrl(shareUrl);
+		    }
+		});
+	},
+	hoverBox: function(t, overrideCss, e) {
+		var cssOptions = {
+			position: 'absolute',
+			top: '-50px',
+			color: 'black',
+			background: '#d9d9d9',
+			width: 200,
+			height: 45,
+			textAlign: 'left',
+			padding: '5px 15px',
+			zIndex: 999
+		};
+
+		cssOptions = $.extend(cssOptions, overrideCss);
+
+		var box = $('<div/>').addClass('popup').addClass('ui-widget ui-widget-content ui-corner-all').text(t).css(cssOptions);
+
+		if ( !!e ) {
+			e = $( e );
+			var pos = e.position();
+			if ( cssOptions.left == "auto" ) {
+				e.closest( "div" ).append( box );
+				cssOptions.left = pos.left + ( e.outerWidth() / 2 ) - ( box.outerWidth() / 2 );
+				if ( cssOptions.left + box.outerWidth() > e.closest( "div" ).outerWidth() ) {
+					cssOptions.left = e.closest( "div" ).outerWidth() - box.outerWidth() + 20;
+				}
+			}
+			if ( cssOptions.top == "auto" ) {
+				e.closest( "div" ).append( box );
+				cssOptions.top = pos.top - box.outerHeight() - 5;
+			}
+			box.css(cssOptions);
+		}
+
+		return box;
+	},
+	configureForm: function( form, options ) {
+		rtc.mailto.form = form;
+		rtc.mailto.mode = "single";
+
+		$.extend( rtc.mailto.options, options );
+
+		form.filter( ":first" ).prepend( // make sure that these fields are only appended to one form (in the case of multi step forms - e.g. Curian's cardmailto-fp.xhtml)
+			'<input type="hidden" name="shareUrl" ></input>' +
+			'<input type="hidden" name="sharePuid" ></input>' +
+			'<input type="hidden" name="referrer_session_name" ></input>' +
+			'<input type="hidden" name="campaign" ></input>' );
+
+		form.find('input[name=theirname],input[name=theirfirstname],input[name=theirlastname]').change(rtc.mailto.updateTheirname).keyup(rtc.mailto.updateTheirname);
+
+		$('input[name=sharelink]',rtc.mailto.options.lastStepSelector).click(function() {
+			//$(this).select();
+			try {
+				var i = $(this).get(0);
+				i.focus();
+				i.setSelectionRange(0, 9999);
+			}
+			catch ( e ) {}
+		});
+
+		if (!Modernizr.touch){
+			$('span.ui-button-text:contains(' + rtc.strings.get( "mailtoCardButtonLabels", "sendVia" ) + ')').parent().mouseenter(function() {
+				$(this).closest("div").css("position","relative").append(rtc.mailto.hoverBox(rtc.strings.get( "mailtoTooltips", "sendVia" ),rtc.mailto.options.sendViaTooltipCSS,this));
+			}).mouseleave(function() {
+				$(this).closest("div").find('.popup').remove();
+			});
+			$('span.ui-button-text:contains(' + rtc.strings.get( "mailtoCardButtonLabels", "sendDirectly" ) + ')').parent().mouseenter(function() {
+				$(this).closest("div").css("position","relative").append(rtc.mailto.hoverBox(rtc.strings.get( "mailtoTooltips", "sendDirectly" ), rtc.mailto.options.sendDirectlyTooltipCSS,this));
+			}).mouseleave(function() {
+				$(this).closest("div").find('.popup').remove();
+			});
+		}
+	}
+} } );
