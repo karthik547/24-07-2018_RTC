@@ -409,7 +409,7 @@ border-bottom-right-radius: 6%;
 }
 
 .timeline__button-icon--skip-back {
-    margin-right: 8px;
+    margin-right: 43px;
     background-position-x: calc((100%/26) * 2);
     --timeline-bgX: calc((100%/26) * 2);
 }
