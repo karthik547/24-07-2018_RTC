@@ -387,8 +387,8 @@ border-bottom-right-radius: 6%;
 
     display: block;
     margin: 0 auto;
-    width: 30px;
-    height: 30px;
+    width: 20px;
+    height: 20px;
     background: url("../images/timeline_controls.png") no-repeat;
     background-position-y: 50%;
     background-position: var(--timeline-bgX) var(--timeline-bgY);
