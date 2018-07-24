@@ -286,9 +286,9 @@ sub {
 }
 
 .promo--side {
-    float: left;
+    float: right;
     width: 270px;
-    margin-top:7%;
+    margin-top:-36%;
 }
 
 .fullscreen .promo--side {
