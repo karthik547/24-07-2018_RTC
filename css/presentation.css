@@ -741,32 +741,26 @@ border-bottom-right-radius: 6%;
     text-decoration: none;
 }
 
+
 /** 720p **/
 @media screen and (max-width: 2460px) {
     .header__preparedfor {
-        font-size: 2px;
+        font-size: 14px;
     }
 
     .fullscreen .cta--side .cta__label {
         line-height: 50px;
         font-size: 20px;
     }
-    .promo--side .promo__image
-     {
-		 width: 130px;
-                 height: 167px;
-	    	 margin-top: -568px;
-	}
-    
+
     .cta__icon {
         margin-bottom: 15px;
-        width: 25px;
-        height: 25px;
+        width: 30px;
+        height: 30px;
     }
 
     .fullscreen .cta__icon {
         margin-right: calc(((50/230) * 100%) - 25px);
-		background: url(side_buttons3.png);
     }
 
     .cta--side .cta__button {
@@ -787,11 +781,11 @@ border-bottom-right-radius: 6%;
 
     .timeline__button--skip-back,
     .timeline__button--skip-forward {
-        width: 53px;
+        width: 77px;
     }
 
     .timeline__button--play-pause {
-        width: 45px;
+        width: 66px;
     }
 
     .fullscreen .timeline__button-icon {
@@ -805,52 +799,9 @@ border-bottom-right-radius: 6%;
         height: 30px;
     }
 
-    .footer 
-	{
-		height: 31px;
-		position: relative;
-		top: -10px;
-		width: 1420px;
-		margin-left: 243px;
-		margin-right: auto;
-		margin-top: 44px;
-		color: #74777d;
-		font-family: Arial, Helvetica, sans-serif;
-		font-size: 12px;
-		font-weight: bold;
+    .footer {
+        font-size: 14px;
     }
-	
-	#extra_footer 
-	{
-		width: 1420px;
-		margin: 10px auto;
-		text-align: left;
-		margin-bottom: 30px;
-		padding: 30px;
-		border-top: 3px solid #74777d;
-		font-size: 15px;
-		line-height: 14px;
-		font-family: 'DINRegular', Arial, sans-serif;
-		color: #74777d;
-	}
-	
-	#extra_footer.heading 
-	{
-    font-size: 16px;
-	font-family: 'DINRegular', Arial, sans-serif;
-    margin-bottom: 10px;
-    }
-	
-	p {
-      margin-top:10px;
-	  font-family: 'DINRegular', Arial, sans-serif;
-	  font-size:15px;
-    }
-	
-	#extra_footer .bullet-points 
-	{
-		margin-top: 8px;
-	}
 
     .social--top .social__icon,
     .fullscreen .social--top .social__icon {
@@ -875,7 +826,7 @@ border-bottom-right-radius: 6%;
     .timeline__settings-quality,
     .timeline__settings-language,
     .timeline__settings-cc {
-        right: -2px;
+        right: 200px;
     }
 
     .timeline--no-volume .timeline__settings-popout,
@@ -900,13 +851,6 @@ border-bottom-right-radius: 6%;
         width: 28px;
         height: 28px;
     }
-	
-	.promo--side .promo__image{
-		width:100%;
-		height:100%;
-		
-    		margin-top: 74px;
-     }
 
     .social--top-right .social__icon {
         margin-right: 4px;
@@ -1047,12 +991,6 @@ border-bottom-right-radius: 6%;
         width: 26px;
         height: 26px;
     }
-	.promo--side .promo__image{
-		width:100%;
-		height:100%;
-		 
-    		margin-top: 38px;
-	}
 
     .social--top-right .social__icon {
         margin-right: 3px;
@@ -1074,8 +1012,8 @@ border-bottom-right-radius: 6%;
 
     .cta__icon {
         margin-bottom: 6px;
-        width: 10px;
-        height: 11px;
+        width: 15px;
+        height: 15px;
     }
 
     .fullscreen .cta__icon {
@@ -1179,11 +1117,6 @@ border-bottom-right-radius: 6%;
     .fullscreen .cta--side .cta__label {
         font-size: 12px;
     }
-	.promo--side .promo__image{
-		width:100%;
-		height:100%;
-	    	   
-	}
 
     .timeline__button--skip-back,
     .timeline__button--skip-forward {
@@ -1285,11 +1218,7 @@ border-bottom-right-radius: 6%;
     .header__logo {
       /**  width: 300px; **/
     }
-.promo--side .promo__image{
-		width:100%;
-		height:100%;
-	    	    
-	}
+
     .player__splash-image {
         margin-top: calc((100% * (9/16)) / 2 - (78px / 2)); /* Calculate the margin-top based on half the video height, minus half the height of the splash icon */
         width: 75px;
@@ -1328,11 +1257,7 @@ border-bottom-right-radius: 6%;
         margin-bottom: 3px;
     }
 }
-.promo--side .promo__image{
-	    width: 130px;
-    	    height: 167px;
-	    	    
-	}
+
 @media screen and (max-width: 375px) and (orientation: portrait) {
     .timeline__button-icon--skip-forward {
         margin-left: 0px;
@@ -1399,3 +1324,4 @@ border-bottom-right-radius: 6%;
         text-decoration: none;
     }
 }
+
