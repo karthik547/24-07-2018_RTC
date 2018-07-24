@@ -745,31 +745,37 @@ div.promo__item.promo__item--bottom {
 
     .cta--side,
     .promo--side {
-        width: 130px;
+        height: 67px;
+		width: 76px;
     }
 
     .cta--side.cta--1 .cta__button {
-        height: 720px;
+        height: 67px;
+		width: 76px;
     }
 
     .cta--side.cta--2 .cta__button {
-        height: 358px;
+        height: 67px;
+		width: 76px;
     }
 
     .cta--side.cta--3 .cta__button {
-        height: 238px;
+        height: 67px;
+		width: 76px;
     }
 
     .cta--side.cta--4 .cta__button {
-        height: 177px;
+        height: 67px;
+		width: 76px;
     }
 
     .cta--side.cta--5 .cta__button {
-        height: 100px;
+        height: 67px;
+		width: 76px;
     }
 
     .promo--side .promo__item {
-        height: 220px;
+        height: 167px;
     }
 
     .promo--side .promo__item--top {
@@ -777,8 +783,8 @@ div.promo__item.promo__item--bottom {
     }
 
     .player__wrapper {
-        width: 1280px;
-        height: 720px;
+        width: 1184px;
+        height: 620px;
     }
 
     .timeline,
@@ -791,11 +797,11 @@ div.promo__item.promo__item--bottom {
     }
 
     .timeline__controls--left {
-        width: 225px;
+        width: 153px;
     }
 
     .timeline__controls--center {
-        width: 1145px;
+        width: 1150px;
     }
 
     .timeline--no-volume .timeline__controls--center {
@@ -812,8 +818,8 @@ div.promo__item.promo__item--bottom {
     }
 
     .timeline__controls--right {
-        width: 270px;
-        padding-left: 4%;
+        width: 114px;
+        padding-left: 0%;
     }
 
     .timeline--no-volume .timeline__controls--right {
@@ -1366,8 +1372,8 @@ div.promo__item.promo__item--bottom {
 @media screen and (max-width: 820px) {
     .cta--side {
         position: absolute;
-        top: -8px;
-        left: 17px;
+        top: 107px;
+        left: 0px;
         height: 100%;
         width: 81.5px;
     }
@@ -1539,4 +1545,3 @@ div.promo__item.promo__item--bottom {
 .fullscreen .top-wrapper--no-promo .timeline__controls--center {
     width: 75%;
 }
-
