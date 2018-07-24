@@ -415,8 +415,8 @@ border-bottom-right-radius: 6%;
 }
 
 .timeline__button-icon--play {
-    width: 35px;
-    height: 35px;
+    width: 25px;
+    height: 25px;
     background-position-x: calc((100%/26) * 0);
     --timeline-bgX: calc((100%/26) * 0);
 }
