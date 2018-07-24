@@ -41,7 +41,7 @@ sub {
 }
 
 .header__logo {
-    
+    margin-left: 30%;
     max-width: 100%;
 }
 
